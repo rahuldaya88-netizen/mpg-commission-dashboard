@@ -1,154 +1,209 @@
+import os
 import streamlit as st
 import pandas as pd
-import os
 
 # Page Configuration
 st.set_page_config(page_title="MPG Commission Dashboard", layout="wide")
 
 st.title("📊 MPG Commission Automated Web App (State-wise Filter)")
 
+
 @st.cache_data(ttl=600)
 def load_and_process_data():
+  local_path_1 = r"C:\Users\rahul\Google Drive Streaming\My Drive\Rahul Backup\Farmer Payment\FYI-26-27"
+  local_path_2 = r"C:\Users\rahul\Google Drive Streaming\My Drive\Rahul Backup\Farmer Payment\FYI-27-28"
+
+  # Check local PC first, otherwise fallback to GitHub repo 'data' folder
+  if os.path.exists(local_path_1) and os.path.exists(local_path_2):
+    folders = [local_path_1, local_path_2]
+  else:
     folders = [
-        r"C:\Users\rahul\Google Drive Streaming\My Drive\Rahul Backup\Farmer Payment\FYI-26-27",
-        r"C:\Users\rahul\Google Drive Streaming\My Drive\Rahul Backup\Farmer Payment\FYI-27-28"
-    ]
-    
-    excluded_files = [
-        "Farmer Master Kalayanpur.xlsb", "Farmer Master.xlsb",
-        "Farmer Master_Kalayanpur.xlsb", "Farmer Master_Other.xlsb",
-        "Farmer Master_Updated for kalayanpur.xlsb", "Farmer Master_Updated Kalayanpur.xlsb",
-        "Farmer Master_Updated-v1.xlsb", "Farmer Master_Updated. (1).xlsb",
-        "Farmer Master_Updated. (2).xlsb", "Farmer Master_Updated.-v2.xlsb",
-        "Farmer Master_Updated..xlsb", "Farmer Master_Updated.2.xlsb",
-        "Farmer Master_Updated.New ..xlsb", "Farmer Master_Updated.xlsb",
-        "Rahul Sir.xlsb", "~$05. Farmer Payment-11-17 Apr.xlsb",
-        "~$07. Farmer Payment-18-24 Apr.xlsb", "~$08. Farmer Payment-25-01 Apr.xlsb",
-        "19. Farmer Payment-31-06 Aug.xlsb"
+        os.path.join("data", "FYI-26-27"),
+        os.path.join("data", "FYI-27-28"),
     ]
 
-    all_dfs = []
-    debug_info = []
+  excluded_files = [
+      "Farmer Master Kalayanpur.xlsb",
+      "Farmer Master.xlsb",
+      "Farmer Master_Kalayanpur.xlsb",
+      "Farmer Master_Other.xlsb",
+      "Farmer Master_Updated for kalayanpur.xlsb",
+      "Farmer Master_Updated Kalayanpur.xlsb",
+      "Farmer Master_Updated-v1.xlsb",
+      "Farmer Master_Updated. (1).xlsb",
+      "Farmer Master_Updated. (2).xlsb",
+      "Farmer Master_Updated.-v2.xlsb",
+      "Farmer Master_Updated..xlsb",
+      "Farmer Master_Updated.2.xlsb",
+      "Farmer Master_Updated.New ..xlsb",
+      "Farmer Master_Updated.xlsb",
+      "Rahul Sir.xlsb",
+      "~$05. Farmer Payment-11-17 Apr.xlsb",
+      "~$07. Farmer Payment-18-24 Apr.xlsb",
+      "~$08. Farmer Payment-25-01 Apr.xlsb",
+      "19. Farmer Payment-31-06 Aug.xlsb",
+  ]
 
-    for folder in folders:
-        if not os.path.exists(folder):
-            debug_info.append(f"❌ Folder nahi mila: {folder}")
+  all_dfs = []
+  debug_info = []
+
+  for folder in folders:
+    if not os.path.exists(folder):
+      debug_info.append(f"❌ Folder nahi mila: {folder}")
+      continue
+
+    debug_info.append(f"✅ Folder mil gaya: {folder}")
+
+    found_files_count = 0
+    for root, dirs, files in os.walk(folder):
+      for file in files:
+        if file.lower().endswith(
+            (".xlsb", ".xlsx")
+        ) and not file.startswith("~$"):
+          found_files_count += 1
+          file_path = os.path.join(root, file)
+
+          if file in excluded_files:
             continue
-        
-        debug_info.append(f"✅ Google Drive Folder mil gaya: {folder}")
-        
-        found_files_count = 0
-        for root, dirs, files in os.walk(folder):
-            for file in files:
-                if file.lower().endswith(('.xlsb', '.xlsx')) and not file.startswith('~$'):
-                    found_files_count += 1
-                    file_path = os.path.join(root, file)
-                    
-                    if file in excluded_files:
-                        continue
-                        
-                    try:
-                        engine = "pyxlsb" if file.lower().endswith('.xlsb') else "openpyxl"
-                        df = pd.read_excel(file_path, sheet_name="MPG Payment", engine=engine)
-                        
-                        # FYI Year assign karna
-                        if "FYI-26-27" in folder:
-                            df['FYI'] = "26-27"
-                        else:
-                            df['FYI'] = "27-28"
-                            
-                        # State / Location detection folder path se
-                        root_lower = root.lower()
-                        if "bihar" in root_lower:
-                            df['Location'] = "Bihar"
-                        elif "jharkhand" in root_lower:
-                            df['Location'] = "Jharkhand"
-                        elif "ramgarh" in root_lower:
-                            df['Location'] = "Ramgarh"
-                        else:
-                            df['Location'] = "Other"
-                            
-                        df['Source_File'] = file
-                        all_dfs.append(df)
-                    except Exception as e:
-                        continue
-                        
-        debug_info.append(f"📂 Total valid files read hui: {found_files_count}")
 
-    return all_dfs, debug_info
+          try:
+            engine = (
+                "pyxlsb" if file.lower().endswith(".xlsb") else "openpyxl"
+            )
+            df = pd.read_excel(
+                file_path, sheet_name="MPG Payment", engine=engine
+            )
+
+            # FYI Year assign karna
+            if "FYI-26-27" in folder or "FYI-26-27" in file_path:
+              df["FYI"] = "26-27"
+            else:
+              df["FYI"] = "27-28"
+
+            # State / Location detection folder path se
+            root_lower = root.lower()
+            if "bihar" in root_lower:
+              df["Location"] = "Bihar"
+            elif "jharkhand" in root_lower:
+              df["Location"] = "Jharkhand"
+            elif "ramgarh" in root_lower:
+              df["Location"] = "Ramgarh"
+            else:
+              df["Location"] = "Other"
+
+            df["Source_File"] = file
+            all_dfs.append(df)
+          except Exception as e:
+            continue
+
+    debug_info.append(f"📂 Total valid files read hui: {found_files_count}")
+
+  return all_dfs, debug_info
+
 
 # Run loading
 all_dfs, debug_info = load_and_process_data()
 
 with st.expander("🔍 Google Drive Connection Status"):
-    for info in debug_info:
-        st.write(info)
+  for info in debug_info:
+    st.write(info)
 
 if all_dfs:
-    master_df = pd.concat(all_dfs, ignore_index=True)
-    master_df.columns = master_df.columns.astype(str).str.strip()
+  master_df = pd.concat(all_dfs, ignore_index=True)
+  master_df.columns = master_df.columns.astype(str).str.strip()
 
-    # Calculations
-    if 'BMC Volume' in master_df.columns:
-        master_df['BMC Volume'] = pd.to_numeric(master_df['BMC Volume'], errors='coerce').fillna(0)
-        master_df['Sahayak_Commission'] = master_df['BMC Volume'] * 0.75
-        master_df['Std_gain'] = master_df['BMC Volume'] * 0.95
+  # Calculations
+  if "BMC Volume" in master_df.columns:
+    master_df["BMC Volume"] = (
+        pd.to_numeric(master_df["BMC Volume"], errors="coerce").fillna(0)
+    )
+    master_df["Sahayak_Commission"] = master_df["BMC Volume"] * 0.75
+    master_df["Std_gain"] = master_df["BMC Volume"] * 0.95
 
-    if 'BMC Amount' in master_df.columns:
-        master_df['BMC Amount'] = pd.to_numeric(master_df['BMC Amount'], errors='coerce').fillna(0)
-        master_df['Std_Gain_3'] = master_df['BMC Amount'] * 0.03
+  if "BMC Amount" in master_df.columns:
+    master_df["BMC Amount"] = (
+        pd.to_numeric(master_df["BMC Amount"], errors="coerce").fillna(0)
+    )
+    master_df["Std_Gain_3"] = master_df["BMC Amount"] * 0.03
 
-    if 'Sahayak_Commission' in master_df.columns and 'Std_gain' in master_df.columns:
-        sample_val = pd.to_numeric(master_df['Sample Am'], errors='coerce').fillna(0) if 'Sample Am' in master_df.columns else 0
-        amc_col = master_df['BMC Volume'] * 0.10 if 'BMC Volume' in master_df.columns else 0
-        master_df['Commission Final'] = (master_df['Sahayak_Commission'] + master_df['Std_gain'] + sample_val) - amc_col
+  if (
+      "Sahayak_Commission" in master_df.columns
+      and "Std_gain" in master_df.columns
+  ):
+    sample_val = (
+        pd.to_numeric(master_df["Sample Am"], errors="coerce").fillna(0)
+        if "Sample Am" in master_df.columns
+        else 0
+    )
+    amc_col = (
+        master_df["BMC Volume"] * 0.10
+        if "BMC Volume" in master_df.columns
+        else 0
+    )
+    master_df["Commission Final"] = (
+        master_df["Sahayak_Commission"] + master_df["Std_gain"] + sample_val
+    ) - amc_col
 
-    st.success(f"✅ Data Successfully Loaded! Total Records: {len(master_df):,}")
+  st.success(f"✅ Data Successfully Loaded! Total Records: {len(master_df):,}")
 
-    # --- SIDEBAR FILTERS ---
-    st.sidebar.header("🔍 Filters & Search")
-    
-    search_box = st.sidebar.text_input("Search by Code / Name", "")
-    
-    # State / Location Filter
-    if 'Location' in master_df.columns:
-        loc_options = ['All'] + list(master_df['Location'].dropna().unique())
-        selected_location = st.sidebar.selectbox("Select Location / State", loc_options)
-    else:
-        selected_location = 'All'
+  # --- SIDEBAR FILTERS ---
+  st.sidebar.header("🔍 Filters & Search")
 
-    # FYI Year Filter
-    if 'FYI' in master_df.columns:
-        fyi_options = ['All'] + list(master_df['FYI'].dropna().unique())
-        selected_fyi = st.sidebar.selectbox("Select FYI Year", fyi_options)
-    else:
-        selected_fyi = 'All'
+  search_box = st.sidebar.text_input("Search by Code / Name", "")
 
-    # --- APPLY FILTERS ---
-    filtered_df = master_df.copy()
-    
-    if selected_location != 'All':
-        filtered_df = filtered_df[filtered_df['Location'] == selected_location]
-        
-    if selected_fyi != 'All':
-        filtered_df = filtered_df[filtered_df['FYI'] == selected_fyi]
+  # State / Location Filter
+  if "Location" in master_df.columns:
+    loc_options = ["All"] + list(master_df["Location"].dropna().unique())
+    selected_location = st.sidebar.selectbox(
+        "Select Location / State", loc_options
+    )
+  else:
+    selected_location = "All"
 
-    if search_box:
-        mask = filtered_df.astype(str).apply(lambda row: row.str.contains(search_box, case=False).any(), axis=1)
-        filtered_df = filtered_df[mask]
+  # FYI Year Filter
+  if "FYI" in master_df.columns:
+    fyi_options = ["All"] + list(master_df["FYI"].dropna().unique())
+    selected_fyi = st.sidebar.selectbox("Select FYI Year", fyi_options)
+  else:
+    selected_fyi = "All"
 
-    # Metrics
-    st.subheader("📈 Summary Metrics")
-    col1, col2, col3 = st.columns(3)
-    total_vol = filtered_df['BMC Volume'].sum() if 'BMC Volume' in filtered_df.columns else 0
-    total_comm = filtered_df['Commission Final'].sum() if 'Commission Final' in filtered_df.columns else 0
-    
-    col1.metric("Total BMC Volume", f"{total_vol:,.2f}")
-    col2.metric("Total Final Commission", f"₹ {total_comm:,.2f}")
-    col3.metric("Total Records", f"{len(filtered_df):,}")
+  # --- APPLY FILTERS ---
+  filtered_df = master_df.copy()
 
-    st.subheader("📋 Processed Commission Data Table")
-    st.dataframe(filtered_df, use_container_width=True)
+  if selected_location != "All":
+    filtered_df = filtered_df[filtered_df["Location"] == selected_location]
+
+  if selected_fyi != "All":
+    filtered_df = filtered_df[filtered_df["FYI"] == selected_fyi]
+
+  if search_box:
+    mask = filtered_df.astype(str).apply(
+        lambda row: row.str.contains(search_box, case=False).any(), axis=1
+    )
+    filtered_df = filtered_df[mask]
+
+  # Metrics
+  st.subheader("📈 Summary Metrics")
+  col1, col2, col3 = st.columns(3)
+  total_vol = (
+      filtered_df["BMC Volume"].sum()
+      if "BMC Volume" in filtered_df.columns
+      else 0
+  )
+  total_comm = (
+      filtered_df["Commission Final"].sum()
+      if "Commission Final" in filtered_df.columns
+      else 0
+  )
+
+  col1.metric("Total BMC Volume", f"{total_vol:,.2f}")
+  col2.metric("Total Final Commission", f"₹ {total_comm:,.2f}")
+  col3.metric("Total Records", f"{len(filtered_df):,}")
+
+  st.subheader("📋 Processed Commission Data Table")
+  st.dataframe(filtered_df, use_container_width=True)
 
 else:
-    st.warning("⚠️ Google Drive path check karein. Kripya ensure karein ki files sahi folders mein maujood hain.")
+  st.warning(
+      "⚠️ Data nahi mila. Kripya ensure karein ki files local path par ya GitHub repo mein 'data/' folder ke andar maujood hain."
+  )
