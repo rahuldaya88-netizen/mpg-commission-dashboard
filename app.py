@@ -10,11 +10,15 @@ st.title("📊 MPG Commission Automated Web App (State-wise Filter)")
 
 @st.cache_data(ttl=600)
 def load_and_process_data():
-    # Google Drive path hata kar repo ke relative 'data/' folders set kiye
-    folders = [
+    # Root level ya data/ folder dono check karega
+    potential_folders = [
+        "FYI-26-27",
+        "FYI-27-28",
         os.path.join("data", "FYI-26-27"),
         os.path.join("data", "FYI-27-28"),
     ]
+
+    folders = [f for f in potential_folders if os.path.exists(f)]
 
     excluded_files = [
         "Farmer Master Kalayanpur.xlsb",
@@ -41,11 +45,12 @@ def load_and_process_data():
     all_dfs = []
     debug_info = []
 
-    for folder in folders:
-        if not os.path.exists(folder):
-            debug_info.append(f"❌ Folder nahi mila: {folder}")
-            continue
+    if not folders:
+        debug_info.append(
+            "❌ Koi bhi FYI folder (FYI-26-27 / FYI-27-28) nahi mila!"
+        )
 
+    for folder in folders:
         debug_info.append(f"✅ Folder mil gaya: {folder}")
 
         found_files_count = 0
@@ -71,7 +76,7 @@ def load_and_process_data():
                         )
 
                         # FYI Year assign karna
-                        if "FYI-26-27" in folder or "FYI-26-27" in file_path:
+                        if "26-27" in folder or "26-27" in file_path:
                             df["FYI"] = "26-27"
                         else:
                             df["FYI"] = "27-28"
@@ -205,5 +210,5 @@ if all_dfs:
 
 else:
     st.warning(
-        "⚠️ Data nahi mila. Kripya ensure karein ki GitHub repo mein 'data/FYI-26-27' aur 'data/FYI-27-28' folders maujood hain."
+        "⚠️ Data nahi mila. Kripya ensure karein ki 'FYI-26-27' ya 'FYI-27-28' folders mein valid Excel/XLSB files maujood hain."
     )
