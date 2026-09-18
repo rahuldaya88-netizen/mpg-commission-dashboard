@@ -67,8 +67,12 @@ def load_and_process_data():
                             if file.lower().endswith(".xlsb")
                             else "openpyxl"
                         )
+                        # header=1 use kiya taaki BMC Code sahi header bane
                         df = pd.read_excel(
-                            file_path, sheet_name="MPG Payment", engine=engine
+                            file_path,
+                            sheet_name="MPG Payment",
+                            engine=engine,
+                            header=1,
                         )
 
                         # FYI Year assign karna
@@ -111,18 +115,11 @@ if all_dfs:
     master_df = pd.concat(all_dfs, ignore_index=True)
     master_df.columns = master_df.columns.astype(str).str.strip()
 
-    # --- 1. UNWANTED / UNNAMED COLUMNS REMOVE KARNA ---
-    unnamed_cols = [
-        c
-        for c in master_df.columns
-        if "Unnamed" in c
-        or c.lower() == "nan"
-        or c.lower() == "none"
-        or c == ""
-    ]
-    master_df = master_df.drop(columns=unnamed_cols, errors="ignore")
+    # Sirf 'nan' ya blank technical columns hatao, data columns nahi
+    drop_cols = [c for c in master_df.columns if c.lower() == "nan"]
+    master_df = master_df.drop(columns=drop_cols, errors="ignore")
 
-    # --- 2. SIRF BIHAR KA DATA FILTER KARNA ---
+    # --- SIRF BIHAR KA DATA LOCK ---
     if "Location" in master_df.columns:
         master_df = master_df[master_df["Location"] == "Bihar"]
 
@@ -158,7 +155,7 @@ if all_dfs:
             master_df["Sahayak_Commission"] + master_df["Std_gain"] + sample_val
         ) - amc_col
 
-    # --- 3. DECIMAL ROUNDING (2 DECIMALS) ---
+    # Decimal rounding (2 decimals)
     numeric_cols = master_df.select_dtypes(include=["float64", "int64"]).columns
     master_df[numeric_cols] = master_df[numeric_cols].round(2)
 
