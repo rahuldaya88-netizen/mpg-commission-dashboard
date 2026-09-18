@@ -67,13 +67,32 @@ def load_and_process_data():
                             if file.lower().endswith(".xlsb")
                             else "openpyxl"
                         )
-                        # Try reading with header=1 or header=0 (auto fallback)
-                        df = pd.read_excel(
+                        # Bina header ke read karo pehle
+                        df_raw = pd.read_excel(
                             file_path,
                             sheet_name="MPG Payment",
                             engine=engine,
-                            header=1,
+                            header=None,
                         )
+
+                        # Dynamic Header Row Find karna (jahan 'bmc code' ya 'mpg name' ho)
+                        h_idx = 0
+                        for idx, row in df_raw.head(10).iterrows():
+                            vals = [
+                                str(x).strip().lower()
+                                for x in row.values
+                                if pd.notna(x)
+                            ]
+                            if any("bmc code" in v or "bmc" in v for v in vals):
+                                h_idx = idx
+                                break
+
+                        df = df_raw.iloc[h_idx + 1 :].copy()
+                        df.columns = [
+                            str(c).strip() if pd.notna(c) else f"Col_{i}"
+                            for i, c in enumerate(df_raw.iloc[h_idx])
+                        ]
+                        df.reset_index(drop=True, inplace=True)
 
                         # FYI Year assign karna
                         if "26-27" in folder or "26-27" in file_path:
@@ -161,9 +180,19 @@ if all_dfs:
     drop_cols = [
         c
         for c in master_df.columns
-        if c.lower() == "nan" or c.lower() == "none"
+        if c.lower() == "nan"
+        or c.lower() == "none"
+        or c.startswith("Col_")
+        and c.replace("Col_", "").isdigit()
     ]
-    master_df = master_df.drop(columns=drop_cols, errors="ignore")
+    # Keep actual useful columns clean
+    drop_excess = [
+        c
+        for c in master_df.columns
+        if "unnamed" in c.lower()
+        and master_df[c].dropna().astype(str).str.strip().eq("").all()
+    ]
+    master_df = master_df.drop(columns=drop_excess, errors="ignore")
 
     # Decimal rounding (2 decimals)
     numeric_cols = master_df.select_dtypes(include=["float64", "int64"]).columns
