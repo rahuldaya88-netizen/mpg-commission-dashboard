@@ -67,7 +67,7 @@ def load_and_process_data():
                             if file.lower().endswith(".xlsb")
                             else "openpyxl"
                         )
-                        # header=1 use kiya taaki BMC Code sahi header bane
+                        # Try reading with header=1 or header=0 (auto fallback)
                         df = pd.read_excel(
                             file_path,
                             sheet_name="MPG Payment",
@@ -115,45 +115,55 @@ if all_dfs:
     master_df = pd.concat(all_dfs, ignore_index=True)
     master_df.columns = master_df.columns.astype(str).str.strip()
 
-    # Sirf 'nan' ya blank technical columns hatao, data columns nahi
-    drop_cols = [c for c in master_df.columns if c.lower() == "nan"]
-    master_df = master_df.drop(columns=drop_cols, errors="ignore")
-
-    # --- SIRF BIHAR KA DATA LOCK ---
+    # Sirf Bihar ka data lock
     if "Location" in master_df.columns:
         master_df = master_df[master_df["Location"] == "Bihar"]
 
-    # Calculations
-    if "BMC Volume" in master_df.columns:
-        master_df["BMC Volume"] = pd.to_numeric(
-            master_df["BMC Volume"], errors="coerce"
-        ).fillna(0)
-        master_df["Sahayak_Commission"] = master_df["BMC Volume"] * 0.75
-        master_df["Std_gain"] = master_df["BMC Volume"] * 0.95
+    # --- SMART COLUMN FINDER ---
+    def find_col(df, keywords):
+        for col in df.columns:
+            for kw in keywords:
+                if kw.lower() in col.lower():
+                    return col
+        return None
 
-    if "BMC Amount" in master_df.columns:
-        master_df["BMC Amount"] = pd.to_numeric(
-            master_df["BMC Amount"], errors="coerce"
-        ).fillna(0)
-        master_df["Std_Gain_3"] = master_df["BMC Amount"] * 0.03
+    vol_col = find_col(master_df, ["bmc volume", "volume", "qty"])
+    amt_col = find_col(master_df, ["bmc amount", "amount", "value"])
+    sample_col = find_col(master_df, ["sample"])
 
-    if (
-        "Sahayak_Commission" in master_df.columns
-        and "Std_gain" in master_df.columns
-    ):
-        sample_val = (
-            pd.to_numeric(master_df["Sample Am"], errors="coerce").fillna(0)
-            if "Sample Am" in master_df.columns
-            else 0
-        )
-        amc_col = (
-            master_df["BMC Volume"] * 0.10
-            if "BMC Volume" in master_df.columns
-            else 0
-        )
-        master_df["Commission Final"] = (
-            master_df["Sahayak_Commission"] + master_df["Std_gain"] + sample_val
-        ) - amc_col
+    # Calculations with flexible columns
+    master_df["BMC Volume"] = (
+        pd.to_numeric(master_df[vol_col], errors="coerce").fillna(0)
+        if vol_col
+        else 0
+    )
+    master_df["BMC Amount"] = (
+        pd.to_numeric(master_df[amt_col], errors="coerce").fillna(0)
+        if amt_col
+        else 0
+    )
+    sample_val = (
+        pd.to_numeric(master_df[sample_col], errors="coerce").fillna(0)
+        if sample_col
+        else 0
+    )
+
+    master_df["Sahayak_Commission"] = master_df["BMC Volume"] * 0.75
+    master_df["Std_gain"] = master_df["BMC Volume"] * 0.95
+    master_df["Std_Gain_3"] = master_df["BMC Amount"] * 0.03
+    amc_col = master_df["BMC Volume"] * 0.10
+
+    master_df["Commission Final"] = (
+        master_df["Sahayak_Commission"] + master_df["Std_gain"] + sample_val
+    ) - amc_col
+
+    # Unnamed / Unwanted technical columns drop karo jo sirf empty hain
+    drop_cols = [
+        c
+        for c in master_df.columns
+        if c.lower() == "nan" or c.lower() == "none"
+    ]
+    master_df = master_df.drop(columns=drop_cols, errors="ignore")
 
     # Decimal rounding (2 decimals)
     numeric_cols = master_df.select_dtypes(include=["float64", "int64"]).columns
@@ -165,7 +175,6 @@ if all_dfs:
 
     # --- SIDEBAR FILTERS ---
     st.sidebar.header("🔍 Filters & Search")
-
     search_box = st.sidebar.text_input("Search by Code / Name", "")
 
     # FYI Year Filter
@@ -190,16 +199,8 @@ if all_dfs:
     # Metrics
     st.subheader("📈 Summary Metrics (Bihar)")
     col1, col2, col3 = st.columns(3)
-    total_vol = (
-        filtered_df["BMC Volume"].sum()
-        if "BMC Volume" in filtered_df.columns
-        else 0
-    )
-    total_comm = (
-        filtered_df["Commission Final"].sum()
-        if "Commission Final" in filtered_df.columns
-        else 0
-    )
+    total_vol = filtered_df["BMC Volume"].sum()
+    total_comm = filtered_df["Commission Final"].sum()
 
     col1.metric("Total BMC Volume", f"{total_vol:,.2f}")
     col2.metric("Total Final Commission", f"₹ {total_comm:,.2f}")
