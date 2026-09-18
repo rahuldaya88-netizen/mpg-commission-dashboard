@@ -5,7 +5,7 @@ import streamlit as st
 # Page Configuration
 st.set_page_config(page_title="MPG Commission Dashboard", layout="wide")
 
-st.title("📊 MPG Commission Automated Web App (State-wise Filter)")
+st.title("📊 MPG Commission Automated Rahul Web App (State-wise Filter)")
 
 
 @st.cache_data(ttl=600)
