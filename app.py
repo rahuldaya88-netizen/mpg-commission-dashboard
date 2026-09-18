@@ -67,7 +67,6 @@ def load_and_process_data():
                             if file.lower().endswith(".xlsb")
                             else "openpyxl"
                         )
-                        # Bina header ke read karo pehle
                         df_raw = pd.read_excel(
                             file_path,
                             sheet_name="MPG Payment",
@@ -75,7 +74,7 @@ def load_and_process_data():
                             header=None,
                         )
 
-                        # Dynamic Header Row Find karna (jahan 'bmc code' ya 'mpg name' ho)
+                        # Dynamic Header Row Find karna
                         h_idx = 0
                         for idx, row in df_raw.head(10).iterrows():
                             vals = [
@@ -88,10 +87,23 @@ def load_and_process_data():
                                 break
 
                         df = df_raw.iloc[h_idx + 1 :].copy()
-                        df.columns = [
-                            str(c).strip() if pd.notna(c) else f"Col_{i}"
-                            for i, c in enumerate(df_raw.iloc[h_idx])
-                        ]
+
+                        # Unique column names generator to prevent InvalidIndexError
+                        raw_cols = df_raw.iloc[h_idx]
+                        cols = []
+                        seen = {}
+                        for i, c in enumerate(raw_cols):
+                            name = (
+                                str(c).strip() if pd.notna(c) else f"Col_{i}"
+                            )
+                            if name in seen:
+                                seen[name] += 1
+                                name = f"{name}_{seen[name]}"
+                            else:
+                                seen[name] = 0
+                            cols.append(name)
+
+                        df.columns = cols
                         df.reset_index(drop=True, inplace=True)
 
                         # FYI Year assign karna
@@ -131,7 +143,8 @@ with st.expander("🔍 Folder Connection Status"):
         st.write(info)
 
 if all_dfs:
-    master_df = pd.concat(all_dfs, ignore_index=True)
+    # Safe outer concat
+    master_df = pd.concat(all_dfs, ignore_index=True, join="outer")
     master_df.columns = master_df.columns.astype(str).str.strip()
 
     # Sirf Bihar ka data lock
@@ -177,15 +190,6 @@ if all_dfs:
     ) - amc_col
 
     # Unnamed / Unwanted technical columns drop karo jo sirf empty hain
-    drop_cols = [
-        c
-        for c in master_df.columns
-        if c.lower() == "nan"
-        or c.lower() == "none"
-        or c.startswith("Col_")
-        and c.replace("Col_", "").isdigit()
-    ]
-    # Keep actual useful columns clean
     drop_excess = [
         c
         for c in master_df.columns
