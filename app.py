@@ -1,246 +1,140 @@
 import os
+import glob
 import pandas as pd
+from sqlalchemy import create_engine, text
 import streamlit as st
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+import io
 
-# Page Configuration
-st.set_page_config(page_title="MPG Commission Dashboard", layout="wide")
+DB_FILE = "app_database.db"
+engine = create_engine(f"sqlite:///{DB_FILE}")
 
-st.title("📊 MPG Payment (Bihar Clean View)")
-
-
-@st.cache_data(ttl=600)
-def load_and_process_data():
-    potential_folders = [
-        "FYI-26-27",
-        "FYI-27-28",
-        os.path.join("data", "FYI-26-27"),
-        os.path.join("data", "FYI-27-28"),
-    ]
-
-    folders = [f for f in potential_folders if os.path.exists(f)]
-
-    excluded_files = [
-        "Farmer Master Kalayanpur.xlsb",
-        "Farmer Master.xlsb",
-        "Farmer Master_Kalayanpur.xlsb",
-        "Farmer Master_Other.xlsb",
-        "Farmer Master_Updated for kalayanpur.xlsb",
-        "Farmer Master_Updated Kalayanpur.xlsb",
-        "Farmer Master_Updated-v1.xlsb",
-        "Farmer Master_Updated. (1).xlsb",
-        "Farmer Master_Updated. (2).xlsb",
-        "Farmer Master_Updated.-v2.xlsb",
-        "Farmer Master_Updated..xlsb",
-        "Farmer Master_Updated.2.xlsb",
-        "Farmer Master_Updated.New ..xlsb",
-        "Farmer Master_Updated.xlsb",
-        "Rahul Sir.xlsb",
-        "~$05. Farmer Payment-11-17 Apr.xlsb",
-        "~$07. Farmer Payment-18-24 Apr.xlsb",
-        "~$08. Farmer Payment-25-01 Apr.xlsb",
-        "19. Farmer Payment-31-06 Aug.xlsb",
-    ]
-
-    all_dfs = []
-    debug_info = []
-
-    if not folders:
-        debug_info.append("❌ Koi bhi FYI folder nahi mila!")
-
-    for folder in folders:
-        debug_info.append(f"✅ Folder mil gaya: {folder}")
-        found_files_count = 0
-        for root, dirs, files in os.walk(folder):
-            for file in files:
-                if file.lower().endswith(
-                    (".xlsb", ".xlsx")
-                ) and not file.startswith("~$"):
-                    found_files_count += 1
-                    file_path = os.path.join(root, file)
-
-                    if file in excluded_files:
-                        continue
-
-                    try:
-                        engine = (
-                            "pyxlsb"
-                            if file.lower().endswith(".xlsb")
-                            else "openpyxl"
-                        )
-                        df_raw = pd.read_excel(
-                            file_path,
-                            sheet_name="MPG Payment",
-                            engine=engine,
-                            header=None,
-                        )
-
-                        # Dynamic Header Row Find karna
-                        h_idx = 0
-                        for idx, row in df_raw.head(10).iterrows():
-                            vals = [
-                                str(x).strip().lower()
-                                for x in row.values
-                                if pd.notna(x)
-                            ]
-                            if any("bmc code" in v or "bmc" in v for v in vals):
-                                h_idx = idx
-                                break
-
-                        df = df_raw.iloc[h_idx + 1 :].copy()
-
-                        # Unique column names generator to prevent InvalidIndexError
-                        raw_cols = df_raw.iloc[h_idx]
-                        cols = []
-                        seen = {}
-                        for i, c in enumerate(raw_cols):
-                            name = (
-                                str(c).strip() if pd.notna(c) else f"Col_{i}"
-                            )
-                            if name in seen:
-                                seen[name] += 1
-                                name = f"{name}_{seen[name]}"
-                            else:
-                                seen[name] = 0
-                            cols.append(name)
-
-                        df.columns = cols
-                        df.reset_index(drop=True, inplace=True)
-
-                        # FYI Year assign karna
-                        if "26-27" in folder or "26-27" in file_path:
-                            df["FYI"] = "26-27"
-                        else:
-                            df["FYI"] = "27-28"
-
-                        # State / Location detection folder path se
-                        root_lower = root.lower()
-                        if "bihar" in root_lower:
-                            df["Location"] = "Bihar"
-                        elif "jharkhand" in root_lower:
-                            df["Location"] = "Jharkhand"
-                        elif "ramgarh" in root_lower:
-                            df["Location"] = "Ramgarh"
-                        else:
-                            df["Location"] = "Other"
-
-                        df["Source_File"] = file
-                        all_dfs.append(df)
-                    except Exception as e:
-                        continue
-
-        debug_info.append(
-            f"📂 Total valid files read hui ({folder}): {found_files_count}"
-        )
-
-    return all_dfs, debug_info
-
-
-# Run loading
-all_dfs, debug_info = load_and_process_data()
-
-with st.expander("🔍 Folder Connection Status"):
-    for info in debug_info:
-        st.write(info)
-
-if all_dfs:
-    # Safe outer concat
-    master_df = pd.concat(all_dfs, ignore_index=True, join="outer")
-    master_df.columns = master_df.columns.astype(str).str.strip()
-
-    # Sirf Bihar ka data lock
-    if "Location" in master_df.columns:
-        master_df = master_df[master_df["Location"] == "Bihar"]
-
-    # --- SMART COLUMN FINDER ---
-    def find_col(df, keywords):
-        for col in df.columns:
-            for kw in keywords:
-                if kw.lower() in col.lower():
-                    return col
-        return None
-
-    vol_col = find_col(master_df, ["bmc volume", "volume", "qty"])
-    amt_col = find_col(master_df, ["bmc amount", "amount", "value"])
-    sample_col = find_col(master_df, ["sample"])
-
-    # Calculations with flexible columns
-    master_df["BMC Volume"] = (
-        pd.to_numeric(master_df[vol_col], errors="coerce").fillna(0)
-        if vol_col
-        else 0
-    )
-    master_df["BMC Amount"] = (
-        pd.to_numeric(master_df[amt_col], errors="coerce").fillna(0)
-        if amt_col
-        else 0
-    )
-    sample_val = (
-        pd.to_numeric(master_df[sample_col], errors="coerce").fillna(0)
-        if sample_col
-        else 0
-    )
-
-    master_df["Sahayak_Commission"] = master_df["BMC Volume"] * 0.75
-    master_df["Std_gain"] = master_df["BMC Volume"] * 0.95
-    master_df["Std_Gain_3"] = master_df["BMC Amount"] * 0.03
-    amc_col = master_df["BMC Volume"] * 0.10
-
-    master_df["Commission Final"] = (
-        master_df["Sahayak_Commission"] + master_df["Std_gain"] + sample_val
-    ) - amc_col
-
-    # Unnamed / Unwanted technical columns drop karo jo sirf empty hain
-    drop_excess = [
-        c
-        for c in master_df.columns
-        if "unnamed" in c.lower()
-        and master_df[c].dropna().astype(str).str.strip().eq("").all()
-    ]
-    master_df = master_df.drop(columns=drop_excess, errors="ignore")
-
-    # Decimal rounding (2 decimals)
-    numeric_cols = master_df.select_dtypes(include=["float64", "int64"]).columns
-    master_df[numeric_cols] = master_df[numeric_cols].round(2)
-
-    st.success(
-        f"✅ Bihar Data Loaded & Cleaned! Total Records: {len(master_df):,}"
-    )
-
-    # --- SIDEBAR FILTERS ---
-    st.sidebar.header("🔍 Filters & Search")
-    search_box = st.sidebar.text_input("Search by Code / Name", "")
-
-    # FYI Year Filter
-    if "FYI" in master_df.columns:
-        fyi_options = ["All"] + list(master_df["FYI"].dropna().unique())
-        selected_fyi = st.sidebar.selectbox("Select FYI Year", fyi_options)
+def process_and_save_df(combined_df):
+    """Excel Dataframe ko clean karke SQL me daalta hai."""
+    combined_df.columns = [str(col).strip() for col in combined_df.columns]
+    combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
+    
+    # Existing FY Column Check
+    fy_col = None
+    for col in combined_df.columns:
+        if 'fy' in col.lower() or 'financial' in col.lower() or 'year' in col.lower():
+            fy_col = col
+            break
+            
+    if fy_col:
+        combined_df['Financial_Year'] = combined_df[fy_col].astype(str).str.strip()
     else:
-        selected_fyi = "All"
+        combined_df['Financial_Year'] = 'FY 2026-27'
 
-    # --- APPLY FILTERS ---
-    filtered_df = master_df.copy()
+    if 'Status' not in combined_df.columns:
+        combined_df['Status'] = 'Pending'
+    else:
+        combined_df['Status'] = combined_df['Status'].fillna('Pending')
+        
+    combined_df.to_sql("payments", engine, if_exists="replace", index=True, index_label="record_id")
+    return True
 
-    if selected_fyi != "All":
-        filtered_df = filtered_df[filtered_df["FYI"] == selected_fyi]
+def get_data_from_sql(fy_filter=None):
+    try:
+        if fy_filter and fy_filter != "All":
+            query = f"SELECT * FROM payments WHERE Financial_Year = '{fy_filter}'"
+        else:
+            query = "SELECT * FROM payments"
+        return pd.read_sql(query, engine)
+    except Exception:
+        return pd.DataFrame()
 
-    if search_box:
-        mask = filtered_df.astype(str).apply(
-            lambda row: row.str.contains(search_box, case=False).any(), axis=1
+def update_payment_status(record_id, new_status):
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE payments SET Status = :status WHERE record_id = :id"),
+            {"status": new_status, "id": record_id}
         )
-        filtered_df = filtered_df[mask]
 
-    # Metrics
-    st.subheader("📈 Summary Metrics (Bihar)")
-    col1, col2, col3 = st.columns(3)
-    total_vol = filtered_df["BMC Volume"].sum()
-    total_comm = filtered_df["Commission Final"].sum()
+def generate_pdf_statement(data_row):
+    buffer = io.BytesIO()
+    p = canvas.Canvas(buffer, pagesize=letter)
+    p.drawString(100, 750, "====================================")
+    p.drawString(100, 735, "      PAYMENT STATEMENT / RECEIPT   ")
+    p.drawString(100, 720, "====================================")
+    
+    y = 680
+    for key, value in data_row.items():
+        if y < 50:
+            p.showPage()
+            y = 750
+        p.drawString(100, y, f"{key}: {value}")
+        y -= 20
+        
+    p.showPage()
+    p.save()
+    buffer.seek(0)
+    return buffer
 
-    col1.metric("Total BMC Volume", f"{total_vol:,.2f}")
-    col2.metric("Total Final Commission", f"₹ {total_comm:,.2f}")
-    col3.metric("Total Records", f"{len(filtered_df):,}")
+st.set_page_config(page_title="Payment Dashboard", layout="wide")
+st.title("📊 Excel to SQL & Payment Management System")
 
-    st.subheader("📋 Cleaned Processed Data Table (Bihar)")
-    st.dataframe(filtered_df, use_container_width=True)
+# Sidebar - Direct File Upload & Control
+st.sidebar.header("📁 Upload Excel File")
+uploaded_files = st.sidebar.file_uploader("Apni Excel File Yahan Upload Karein", type=["xlsx", "xls"], accept_multiple_files=True)
 
+if uploaded_files:
+    all_data = [pd.read_excel(file) for file in uploaded_files]
+    combined_df = pd.concat(all_data, ignore_index=True)
+    if process_and_save_df(combined_df):
+        st.sidebar.success("✅ File Successfully Loaded!")
+
+# Data Fetching
+all_df = get_data_from_sql()
+
+if not all_df.empty and 'Financial_Year' in all_df.columns:
+    fy_options = ["All"] + sorted(all_df['Financial_Year'].dropna().unique().tolist())
+    selected_fy = st.sidebar.selectbox("📅 Select Financial Year (FY):", fy_options)
 else:
-    st.warning("⚠️ Bihar ka data nahi mila. Kripya check karein.")
+    selected_fy = "All"
+
+df = get_data_from_sql(selected_fy)
+
+if not df.empty:
+    st.subheader(f"📋 Payment Records ({selected_fy})")
+    st.dataframe(df, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("⚙️ Actions & Operations")
+
+    record_id = st.selectbox("Select Record ID:", df['record_id'].tolist())
+    selected_row = df[df['record_id'] == record_id].iloc[0].to_dict()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("### 1. Print Statement")
+        pdf_file = generate_pdf_statement(selected_row)
+        st.download_button(
+            label="📄 Download Statement (PDF)",
+            data=pdf_file,
+            file_name=f"statement_{record_id}.pdf",
+            mime="application/pdf"
+        )
+
+    with col2:
+        st.markdown("### 2. Payment Control")
+        current_status = selected_row.get('Status')
+        st.info(f"Current Status: **{current_status}**")
+        
+        if current_status == 'Hold':
+            if st.button("🔓 Release Payment"):
+                update_payment_status(record_id, "Released")
+                st.success("Payment Release ho gaya!")
+                st.rerun()
+        else:
+            if st.button("🔒 Hold Payment"):
+                update_payment_status(record_id, "Hold")
+                st.warning("Payment Hold ho gaya!")
+                st.rerun()
+else:
+    st.warning("👈 Left side bar me **Upload Excel File** par click karke apni Excel file choose karein!")
