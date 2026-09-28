@@ -48,11 +48,11 @@ def get_data_from_sql(fy_filter=None):
     except Exception:
         return pd.DataFrame()
 
-def update_payment_status(record_id, new_status):
+def update_payment_status(ID, new_status):
     with engine.begin() as conn:
         conn.execute(
-            text("UPDATE payments SET Status = :status WHERE record_id = :id"),
-            {"status": new_status, "id": record_id}
+            text("UPDATE payments SET Status = :status WHERE Id = :ID"),
+            {"status": new_status, "id": ID}
         )
 
 def generate_pdf_statement(data_row):
@@ -106,8 +106,8 @@ if not df.empty:
     st.markdown("---")
     st.subheader("⚙️ Actions & Operations")
 
-    record_id = st.selectbox("Select Record ID:", df['record_id'].tolist())
-    selected_row = df[df['record_id'] == record_id].iloc[0].to_dict()
+    ID = st.selectbox("Select ID:", df['id'].tolist())
+    selected_row = df[df['id'] == id].iloc[0].to_dict()
 
     col1, col2 = st.columns(2)
 
@@ -117,7 +117,7 @@ if not df.empty:
         st.download_button(
             label="📄 Download Statement (PDF)",
             data=pdf_file,
-            file_name=f"statement_{record_id}.pdf",
+            file_name=f"statement_{id}.pdf",
             mime="application/pdf"
         )
 
@@ -128,12 +128,12 @@ if not df.empty:
         
         if current_status == 'Hold':
             if st.button("🔓 Release Payment"):
-                update_payment_status(record_id, "Released")
+                update_payment_status(id, "Released")
                 st.success("Payment Release ho gaya!")
                 st.rerun()
         else:
             if st.button("🔒 Hold Payment"):
-                update_payment_status(record_id, "Hold")
+                update_payment_status(id, "Hold")
                 st.warning("Payment Hold ho gaya!")
                 st.rerun()
 else:
