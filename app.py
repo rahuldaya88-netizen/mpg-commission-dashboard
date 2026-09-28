@@ -35,7 +35,7 @@ def process_and_save_df(combined_df):
     else:
         combined_df['Status'] = combined_df['Status'].fillna('Pending')
         
-    combined_df.to_sql("payments", engine, if_exists="replace", index=True, index_label="record_id")
+    combined_df.to_sql("payments", engine, if_exists="replace", index=True, index_label="id")
     return True
 
 def get_data_from_sql(fy_filter=None):
