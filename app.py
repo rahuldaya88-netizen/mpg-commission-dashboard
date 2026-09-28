@@ -48,18 +48,18 @@ def get_data_from_sql(fy_filter=None):
     except Exception:
         return pd.DataFrame()
 
-def update_payment_status(ID, new_status):
+def update_payment_status(row_id, new_status):
     with engine.begin() as conn:
         conn.execute(
-            text("UPDATE payments SET Status = :status WHERE Id = :ID"),
-            {"status": new_status, "id": ID}
+            text("UPDATE payments SET Status = :status WHERE id = :id"),
+            {"status": new_status, "id": row_id}
         )
 
 def generate_pdf_statement(data_row):
     buffer = io.BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
     p.drawString(100, 750, "====================================")
-    p.drawString(100, 735, "      PAYMENT STATEMENT / RECEIPT   ")
+    p.drawString(100, 735, "    PAYMENT STATEMENT / RECEIPT    ")
     p.drawString(100, 720, "====================================")
     
     y = 680
@@ -104,10 +104,13 @@ if not df.empty:
     st.dataframe(df, use_container_width=True)
 
     st.markdown("---")
-    st.subheader("⚙️ Actions & Operations")
+    st.subheader("⚙️ Actions & Operations (Search & Update by ID)")
 
-    ID = st.selectbox("Select ID:", df['id'].tolist())
-    selected_row = df[df['id'] == id].iloc[0].to_dict()
+    # ID Selection / Search Dropdown
+    selected_id = st.selectbox("🔍 Select or Search ID:", df['id'].tolist())
+    
+    # Correct filtering using selected_id
+    selected_row = df[df['id'] == selected_id].iloc[0].to_dict()
 
     col1, col2 = st.columns(2)
 
@@ -117,24 +120,24 @@ if not df.empty:
         st.download_button(
             label="📄 Download Statement (PDF)",
             data=pdf_file,
-            file_name=f"statement_{id}.pdf",
+            file_name=f"statement_{selected_id}.pdf",
             mime="application/pdf"
         )
 
     with col2:
         st.markdown("### 2. Payment Control")
-        current_status = selected_row.get('Status')
-        st.info(f"Current Status: **{current_status}**")
+        current_status = selected_row.get('Status', 'Pending')
+        st.info(f"Current Status for ID {selected_id}: **{current_status}**")
         
         if current_status == 'Hold':
             if st.button("🔓 Release Payment"):
-                update_payment_status(id, "Released")
-                st.success("Payment Release ho gaya!")
+                update_payment_status(selected_id, "Released")
+                st.success(f"Payment for ID {selected_id} Release ho gaya!")
                 st.rerun()
         else:
             if st.button("🔒 Hold Payment"):
-                update_payment_status(id, "Hold")
-                st.warning("Payment Hold ho gaya!")
+                update_payment_status(selected_id, "Hold")
+                st.warning(f"Payment for ID {selected_id} Hold ho gaya!")
                 st.rerun()
 else:
-    st.warning("👈 Left side bar me **Upload Excel File** par click karke apni Excel file choose karein!")
+    st.warning("👈 Left sidebar me **Upload Excel File** par click karke apni Excel file choose karein!")
