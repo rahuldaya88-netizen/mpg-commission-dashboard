@@ -35,7 +35,7 @@ def process_and_save_df(combined_df):
     else:
         combined_df['Status'] = combined_df['Status'].fillna('Pending')
         
-    combined_df.to_sql("payments", engine, if_exists="replace", index=True, index_label="id")
+    combined_df.to_sql("payments", engine, if_exists="replace", index=False)
     return True
 
 def get_data_from_sql(fy_filter=None):
@@ -48,12 +48,46 @@ def get_data_from_sql(fy_filter=None):
     except Exception:
         return pd.DataFrame()
 
-def update_payment_status(row_id, new_status):
+def update_payment_status(target_id, new_status):
+    # Support both 'ID' or 'id' column naming conventions dynamically
     with engine.begin() as conn:
-        conn.execute(
-            text("UPDATE payments SET Status = :status WHERE id = :id"),
-            {"status": new_status, "id": row_id}
-        )
+        # Try updating using 'ID'
+        try:
+            conn.execute(
+                text("UPDATE payments SET Status = :status WHERE ID = :id"),
+                {"status": new_status, "id": target_id}
+            )
+        except Exception:
+            conn.execute(
+                text("UPDATE payments SET Status = :status WHERE id = :id"),
+                {"status": new_status, "id": target_id}
+            )
+
+def send_status_email(receiver_email, payment_id, new_status):
+    """Optional: Email notification bhejne ka logic"""
+    try:
+        sender_email = "your_email@gmail.com"
+        sender_password = "your_app_password"
+        
+        if sender_email == "your_email@gmail.com":
+            return False # Configure credentials to activate real mailing
+            
+        message = MIMEMultipart()
+        message["From"] = sender_email
+        message["To"] = receiver_email
+        message["Subject"] = f"Payment Status Update - ID: {payment_id}"
+        
+        body = f"Hello,\n\nYour payment status for ID {payment_id} has been updated to: {new_status}.\n\nRegards,\nPayment Management System"
+        message.attach(MIMEText(body, "plain"))
+        
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.sendmail(sender_email, receiver_email, message.as_string())
+        server.quit()
+        return True
+    except Exception as e:
+        return False
 
 def generate_pdf_statement(data_row):
     buffer = io.BytesIO()
@@ -106,38 +140,62 @@ if not df.empty:
     st.markdown("---")
     st.subheader("⚙️ Actions & Operations (Search & Update by ID)")
 
-    # ID Selection / Search Dropdown
-    selected_id = st.selectbox("🔍 Select or Search ID:", df['id'].tolist())
-    
-    # Correct filtering using selected_id
-    selected_row = df[df['id'] == selected_id].iloc[0].to_dict()
+    # Find ID column name ('ID' or 'id')
+    id_col_name = 'ID' if 'ID' in df.columns else ('id' if 'id' in df.columns else None)
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("### 1. Print Statement")
-        pdf_file = generate_pdf_statement(selected_row)
-        st.download_button(
-            label="📄 Download Statement (PDF)",
-            data=pdf_file,
-            file_name=f"statement_{selected_id}.pdf",
-            mime="application/pdf"
-        )
-
-    with col2:
-        st.markdown("### 2. Payment Control")
-        current_status = selected_row.get('Status', 'Pending')
-        st.info(f"Current Status for ID {selected_id}: **{current_status}**")
+    if id_col_name:
+        # Search / Select ID
+        id_list = df[id_col_name].tolist()
+        selected_id = st.selectbox("🔍 Select or Search ID:", id_list)
         
-        if current_status == 'Hold':
-            if st.button("🔓 Release Payment"):
-                update_payment_status(selected_id, "Released")
-                st.success(f"Payment for ID {selected_id} Release ho gaya!")
-                st.rerun()
-        else:
-            if st.button("🔒 Hold Payment"):
-                update_payment_status(selected_id, "Hold")
-                st.warning(f"Payment for ID {selected_id} Hold ho gaya!")
-                st.rerun()
+        # Get selected row data dictionary
+        selected_row = df[df[id_col_name] == selected_id].iloc[0].to_dict()
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("### 1. Print Statement (PDF)")
+            pdf_file = generate_pdf_statement(selected_row)
+            st.download_button(
+                label="📄 Download Statement (PDF)",
+                data=pdf_file,
+                file_name=f"statement_{selected_id}.pdf",
+                mime="application/pdf"
+            )
+
+        with col2:
+            st.markdown("### 2. Payment Control & Mail")
+            current_status = selected_row.get('Status', 'Pending')
+            st.info(f"Current Status for ID {selected_id}: **{current_status}**")
+            
+            # Optional Email field input
+            recipient_email = st.text_input("📧 Recipient Email (Optional for alerts):", value="")
+
+            if current_status == 'Hold':
+                if st.button("🔓 Release Payment"):
+                    update_payment_status(selected_id, "Released")
+                    if recipient_email:
+                        email_sent = send_status_email(recipient_email, selected_id, "Released")
+                        if email_sent:
+                            st.success("Payment Released & Email Sent successfully!")
+                        else:
+                            st.success("Payment Released! (Email skipped/failed, check config)")
+                    else:
+                        st.success(f"Payment for ID {selected_id} successfully Released!")
+                    st.rerun()
+            else:
+                if st.button("🔒 Hold Payment"):
+                    update_payment_status(selected_id, "Hold")
+                    if recipient_email:
+                        email_sent = send_status_email(recipient_email, selected_id, "Hold")
+                        if email_sent:
+                            st.warning("Payment put on Hold & Email Sent successfully!")
+                        else:
+                            st.warning("Payment put on Hold! (Email skipped/failed, check config)")
+                    else:
+                        st.warning(f"Payment for ID {selected_id} put on Hold!")
+                    st.rerun()
+    else:
+        st.error("❌ Table me 'ID' column nahi mila. Kripya ensure karein ki aapki Excel file me 'ID' column maujood ho.")
 else:
     st.warning("👈 Left sidebar me **Upload Excel File** par click karke apni Excel file choose karein!")
