@@ -38,7 +38,6 @@ if excel_data is not None:
     st.session_state.nav_selection = selected_sheet
     
     if selected_sheet == "Summary":
-        # Top Control Row (FY / Monthly toggle, States Dropdown, Sourcing Dropdown)
         c_f1, c_f2, c_f3 = st.columns([1.2, 2, 2])
         with c_f1:
             view_mode = st.radio("View Mode", ["FY", "Monthly"], horizontal=True, label_visibility="collapsed")
@@ -97,7 +96,6 @@ if excel_data is not None:
 
             lines = base.mark_line(strokeWidth=3)
             points = base.mark_circle(size=80)
-            # Exact values displayed directly on top of graph points as requested
             text = base.mark_text(align='center', baseline='bottom', dy=-12, fontSize=11, fontWeight='bold').encode(
                 text=alt.Text('Cost:Q', format='.2f')
             )
