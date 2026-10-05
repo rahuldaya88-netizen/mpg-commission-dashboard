@@ -75,6 +75,3 @@ def get_dashboard_charts_data(excel_data):
     }, index=years)
     
     return ce_df, scc_df
-
-# Alias taaki app.py ki import error resolve ho jaye
-get_dashboard_charts_ = get_dashboard_charts_data
