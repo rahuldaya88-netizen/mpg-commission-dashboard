@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
 from loader import load_excel_sheets
-from calculator import get_year_wise_growth_summary
+from calculator import get_year_wise_growth_summary, get_dashboard_charts_data, get_monthly_volume_data
 
-# Streamlit page layout configuration
 st.set_page_config(
     page_title="MPG Commission - Live Dashboard",
     page_icon="🥛",
@@ -13,7 +13,6 @@ st.set_page_config(
 st.title("🥛 MPG Commission & Milk Procurement Live Dashboard")
 st.markdown("Yeh dashboard aapke PC ke Excel data se **real-time synchronized** hai.")
 
-# Data load karne ka function
 @st.cache_data(ttl=10)
 def fetch_data():
     return load_excel_sheets()
@@ -23,54 +22,107 @@ excel_data = fetch_data()
 if excel_data is not None:
     st.sidebar.header("📍 Region / Sheet Selection")
     
-    # Session state initialization
     if 'nav_selection' not in st.session_state:
         st.session_state.nav_selection = "Summary"
 
-    # "Summary" button navigation
     if st.sidebar.button("📊 Summary", use_container_width=True):
         st.session_state.nav_selection = "Summary"
         
     st.sidebar.markdown("---")
     
-    # Sheet names list me 'Summary' option add kar rahe hain
     sheet_names = list(excel_data.keys())
     dropdown_options = ["Summary"] + sheet_names
-    
-    # Safe index finding for selectbox
-    current_index = 0
-    if st.session_state.nav_selection in dropdown_options:
-        current_index = dropdown_options.index(st.session_state.nav_selection)
+    current_index = dropdown_options.index(st.session_state.nav_selection) if st.session_state.nav_selection in dropdown_options else 0
 
-    # Dropdown for regions / sheets
     selected_sheet = st.sidebar.selectbox("Choose Sheet", dropdown_options, index=current_index)
-    
-    # Update session state if dropdown changes
     st.session_state.nav_selection = selected_sheet
     
     if selected_sheet == "Summary":
-        st.subheader("📈 Year-by-Year Volume Growth & Trends (BR, WB, JH)")
-        st.markdown("Yeh table aur chart aapko batayegi ki kis saal (FY) mein kitna Volume tha aur performance kaisi rahi.")
+        # Top Control Row (FY / Monthly toggle, States Dropdown, Sourcing Dropdown)
+        c_f1, c_f2, c_f3 = st.columns([1.2, 2, 2])
+        with c_f1:
+            view_mode = st.radio("View Mode", ["FY", "Monthly"], horizontal=True, label_visibility="collapsed")
+        with c_f2:
+            state_filter = st.selectbox("Select State", ["All states", "BR", "WB", "JH"], label_visibility="collapsed")
+        with c_f3:
+            sourcing_filter = st.selectbox("Select Sourcing", ["All sourcing", "Network", "Moomark", "3P Vendor", "Avg Landed Cost"], label_visibility="collapsed")
+
+        st.markdown("---")
         
-        # Function call karke table mangwana
-        growth_df = get_year_wise_growth_summary(excel_data)
-        
-        if not growth_df.empty:
-            # 1. Summary Table dikhana
-            st.dataframe(growth_df, use_container_width=True, hide_index=True)
-            
-            st.markdown("---")
-            st.subheader("📊 Visual Growth Chart (Vol Kg/day)")
-            
-            # 2. Chart ke liye saare saal wale columns filter karna
-            chart_cols = [col for col in growth_df.columns if 'Growth' not in str(col) and col != 'State']
-            if chart_cols:
-                chart_data = growth_df.set_index('State')[chart_cols].T
-                
-                # Streamlit ka clean bar chart
-                st.bar_chart(chart_data)
+        if view_mode == "Monthly":
+            st.subheader("📊 Monthly Volume Trend (Current FY Breakdown)")
+            monthly_df = get_monthly_volume_data(excel_data)
+            if not monthly_df.empty:
+                filtered_monthly = monthly_df.copy()
+                if state_filter != "All states" and state_filter in filtered_monthly.columns:
+                    filtered_monthly = filtered_monthly[[state_filter]]
+                st.bar_chart(filtered_monthly)
+                with st.expander("📋 View Monthly Detailed Table"):
+                    st.dataframe(filtered_monthly, use_container_width=True)
+            else:
+                st.warning("Monthly data available nahi hai.")
         else:
-            st.warning("Year-wise data load karne mein kuch samasya aayi.")
+            st.subheader("📈 Year-by-Year Volume Growth & Trends (BR, WB, JH)")
+            growth_df = get_year_wise_growth_summary(excel_data)
+            if not growth_df.empty:
+                filtered_growth = growth_df.copy()
+                if state_filter != "All states":
+                    filtered_growth = filtered_growth[filtered_growth['State'] == state_filter]
+                st.dataframe(filtered_growth, use_container_width=True, hide_index=True)
+                
+                st.markdown("---")
+                st.subheader("📊 Visual Growth Chart (Vol Kg/day)")
+                chart_cols = [col for col in filtered_growth.columns if col != 'State']
+                if chart_cols:
+                    chart_data = filtered_growth.set_index('State')[chart_cols].T
+                    st.bar_chart(chart_data)
+            else:
+                st.warning("Year-wise data available nahi hai.")
+
+        st.markdown("---")
+        st.subheader("📊 Operational Cost Analytics & Trends")
+        
+        ce_df, scc_data = get_dashboard_charts_data(excel_data)
+        
+        if not ce_df.empty:
+            melted_ce = ce_df.melt('Year', var_name='Sourcing_Type', value_name='Cost')
+            if sourcing_filter != "All sourcing":
+                melted_ce = melted_ce[melted_ce['Sourcing_Type'] == sourcing_filter]
+
+            base = alt.Chart(melted_ce).encode(
+                x=alt.X('Year:N', title='Year'),
+                y=alt.Y('Cost:Q', title='₹ / kg'),
+                color=alt.Color('Sourcing_Type:N', title='Sourcing Type')
+            )
+
+            lines = base.mark_line(strokeWidth=3)
+            points = base.mark_circle(size=80)
+            # Exact values displayed directly on top of graph points as requested
+            text = base.mark_text(align='center', baseline='bottom', dy=-12, fontSize=11, fontWeight='bold').encode(
+                text=alt.Text('Cost:Q', format='.2f')
+            )
+
+            chart = (lines + points + text).properties(
+                title="Weighted-average landed cost by sourcing type (₹ / kg)",
+                height=400
+            ).interactive()
+
+            st.altair_chart(chart, use_container_width=True)
+            
+            with st.expander("📋 View Cost Efficiency Detailed Table"):
+                filtered_ce_table = ce_df.set_index("Year")
+                if sourcing_filter != "All sourcing":
+                    filtered_ce_table = filtered_ce_table[[sourcing_filter]]
+                st.dataframe(filtered_ce_table, use_container_width=True)
+        else:
+            st.warning("Data nahi mila.")
+
+        st.markdown("---")
+        st.subheader("📊 Supply Chain Cost Breakdown (₹ / kg)")
+        if not scc_data.empty:
+            st.bar_chart(scc_data)
+            with st.expander("📋 View Supply Chain Cost Detailed Table"):
+                st.dataframe(scc_data, use_container_width=True)
 
     elif selected_sheet == "Volume Summary":
         df = excel_data[selected_sheet]
@@ -113,7 +165,6 @@ if excel_data is not None:
                 st.error(f"Error loading Annexure 3: {e}")
                 
     else:
-        # Regional Sheets (BIHAR, Jharkhand, West Bengal) ke liye Clean Logic
         df = excel_data[selected_sheet]
         st.subheader(f"📊 Region View: {selected_sheet}")
         
@@ -175,7 +226,6 @@ if excel_data is not None:
             
             st.markdown("---")
             
-            # Quick Filter Buttons
             st.markdown("### ⚡ Quick Filter Buttons")
             b1, b2, b3 = st.columns(3)
             b4, b5 = st.columns(2)
@@ -199,7 +249,6 @@ if excel_data is not None:
                 if st.button("Show All Data", use_container_width=True):
                     st.session_state.filter_selection = "All"
 
-            # Dropdown Filters Section
             st.markdown("### 🔍 Filter Data (Dropdown Options)")
             f_col1, f_col2 = st.columns(2)
             
