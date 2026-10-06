@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import altair as alt
+import plotly.express as px
 from loader import load_excel_sheets
 from calculator import get_year_wise_growth_summary, get_dashboard_charts_data, get_monthly_volume_data
 
@@ -9,6 +9,47 @@ st.set_page_config(
     page_icon="🥛",
     layout="wide"
 )
+
+# Custom Glassmorphism / Dark UI Styling + Single Screen Frame Optimization
+st.markdown("""
+    <style>
+    .stApp {
+        background-color: #0B0F19;
+        color: #E2E8F0;
+    }
+    div[data-testid="stMetric"] {
+        background: rgba(30, 41, 59, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 10px;
+        border-radius: 10px;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    }
+    div[data-testid="stMetric"] label {
+        color: #94A3B8 !important;
+        font-size: 13px !important;
+    }
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        color: #F8FAFC !important;
+        font-size: 20px !important;
+    }
+    .streamlit-expanderHeader {
+        background: rgba(30, 41, 59, 0.5);
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    section[data-testid="stSidebar"] {
+        background-color: #0F172A;
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .block-container {
+        padding-top: 1.2rem;
+        padding-bottom: 1.2rem;
+        padding-left: 1.5rem;
+        padding-right: 1.5rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 st.title("🥛 MPG Commission & Milk Procurement Live Dashboard")
 st.markdown("Yeh dashboard aapke PC ke Excel data se **real-time synchronized** hai.")
@@ -38,9 +79,28 @@ if excel_data is not None:
     st.session_state.nav_selection = selected_sheet
     
     if selected_sheet == "Summary":
-        c_f1, c_f2, c_f3 = st.columns([1.2, 2, 2])
+        growth_df_temp = get_year_wise_growth_summary(excel_data)
+        dynamic_years = [col for col in growth_df_temp.columns if col != 'State'] if not growth_df_temp.empty else ["2017-18", "2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24", "2024-25", "2025-26"]
+
+        c_f1, c_f_year, c_f_qtr, c_f2, c_f3 = st.columns([1.2, 1.2, 1.2, 1.8, 1.8])
+        
         with c_f1:
             view_mode = st.radio("View Mode", ["FY", "Monthly"], horizontal=True, label_visibility="collapsed")
+        
+        with c_f_year:
+            if view_mode == "Monthly":
+                year_options = ["All Years"] + dynamic_years
+                selected_year_filter = st.selectbox("Select Year", year_options, label_visibility="collapsed")
+            else:
+                st.empty()
+
+        with c_f_qtr:
+            if view_mode == "Monthly":
+                qtr_options = ["All Qtrs", "Q1", "Q2", "Q3", "Q4"]
+                selected_qtr_filter = st.selectbox("Select Qtr", qtr_options, label_visibility="collapsed")
+            else:
+                st.empty()
+
         with c_f2:
             state_filter = st.selectbox("Select State", ["All states", "BR", "WB", "JH"], label_visibility="collapsed")
         with c_f3:
@@ -49,78 +109,150 @@ if excel_data is not None:
         st.markdown("---")
         
         if view_mode == "Monthly":
-            st.subheader("📊 Monthly Volume Trend (Current FY Breakdown)")
-            monthly_df = get_monthly_volume_data(excel_data)
-            if not monthly_df.empty:
-                filtered_monthly = monthly_df.copy()
-                if state_filter != "All states" and state_filter in filtered_monthly.columns:
-                    filtered_monthly = filtered_monthly[[state_filter]]
-                st.bar_chart(filtered_monthly)
-                with st.expander("📋 View Monthly Detailed Table"):
-                    st.dataframe(filtered_monthly, use_container_width=True)
-            else:
-                st.warning("Monthly data available nahi hai.")
-        else:
-            st.subheader("📈 Year-by-Year Volume Growth & Trends (BR, WB, JH)")
-            growth_df = get_year_wise_growth_summary(excel_data)
-            if not growth_df.empty:
-                filtered_growth = growth_df.copy()
-                if state_filter != "All states":
-                    filtered_growth = filtered_growth[filtered_growth['State'] == state_filter]
-                st.dataframe(filtered_growth, use_container_width=True, hide_index=True)
-                
-                st.markdown("---")
-                st.subheader("📊 Visual Growth Chart (Vol Kg/day)")
-                chart_cols = [col for col in filtered_growth.columns if col != 'State']
-                if chart_cols:
-                    chart_data = filtered_growth.set_index('State')[chart_cols].T
-                    st.bar_chart(chart_data)
-            else:
-                st.warning("Year-wise data available nahi hai.")
-
-        st.markdown("---")
-        st.subheader("📊 Operational Cost Analytics & Trends")
-        
-        ce_df, scc_data = get_dashboard_charts_data(excel_data)
-        
-        if not ce_df.empty:
-            melted_ce = ce_df.melt('Year', var_name='Sourcing_Type', value_name='Cost')
-            if sourcing_filter != "All sourcing":
-                melted_ce = melted_ce[melted_ce['Sourcing_Type'] == sourcing_filter]
-
-            base = alt.Chart(melted_ce).encode(
-                x=alt.X('Year:N', title='Year'),
-                y=alt.Y('Cost:Q', title='₹ / kg'),
-                color=alt.Color('Sourcing_Type:N', title='Sourcing Type')
-            )
-
-            lines = base.mark_line(strokeWidth=3)
-            points = base.mark_circle(size=80)
-            text = base.mark_text(align='center', baseline='bottom', dy=-12, fontSize=11, fontWeight='bold').encode(
-                text=alt.Text('Cost:Q', format='.2f')
-            )
-
-            chart = (lines + points + text).properties(
-                title="Weighted-average landed cost by sourcing type (₹ / kg)",
-                height=400
-            ).interactive()
-
-            st.altair_chart(chart, use_container_width=True)
+            col_top_l, col_top_r = st.columns(2)
             
-            with st.expander("📋 View Cost Efficiency Detailed Table"):
-                filtered_ce_table = ce_df.set_index("Year")
-                if sourcing_filter != "All sourcing":
-                    filtered_ce_table = filtered_ce_table[[sourcing_filter]]
-                st.dataframe(filtered_ce_table, use_container_width=True)
-        else:
-            st.warning("Data nahi mila.")
+            with col_top_l:
+                st.subheader("📋 Monthly Detailed Table")
+                monthly_df = get_monthly_volume_data(excel_data)
+                if not monthly_df.empty:
+                    filtered_monthly = monthly_df.copy().reset_index()
+                    month_col = next((col for col in filtered_monthly.columns if str(col).lower() in ['month', 'months', 'index']), filtered_monthly.columns[0])
+                    filtered_monthly = filtered_monthly.rename(columns={month_col: 'Months'})
 
-        st.markdown("---")
-        st.subheader("📊 Supply Chain Cost Breakdown (₹ / kg)")
-        if not scc_data.empty:
-            st.bar_chart(scc_data)
-            with st.expander("📋 View Supply Chain Cost Detailed Table"):
-                st.dataframe(scc_data, use_container_width=True)
+                    if 'selected_year_filter' in locals() and selected_year_filter != "All Years":
+                        temp_filtered = filtered_monthly[filtered_monthly['Months'].astype(str).str.contains(selected_year_filter, case=False, na=False)]
+                        if not temp_filtered.empty:
+                            filtered_monthly = temp_filtered
+
+                    if 'selected_qtr_filter' in locals() and selected_qtr_filter != "All Qtrs":
+                        q_map = {"Q1": ["Apr", "May", "Jun"], "Q2": ["Jul", "Aug", "Sep"], "Q3": ["Oct", "Nov", "Dec"], "Q4": ["Jan", "Feb", "Mar"]}
+                        target_months = q_map.get(selected_qtr_filter, [])
+                        temp_qtr = filtered_monthly[filtered_monthly['Months'].astype(str).str.contains('|'.join(target_months), case=False, na=False)]
+                        if not temp_qtr.empty:
+                            filtered_monthly = temp_qtr
+
+                    if state_filter != "All states" and state_filter in filtered_monthly.columns:
+                        monthly_melted = filtered_monthly[['Months', state_filter]].melt('Months', var_name='State', value_name='Volume')
+                    else:
+                        available_states = [s for s in ['BR', 'WB', 'JH'] if s in filtered_monthly.columns]
+                        monthly_melted = filtered_monthly[['Months'] + available_states].melt('Months', var_name='State', value_name='Volume') if available_states else filtered_monthly.melt('Months', var_name='State', value_name='Volume')
+
+                    monthly_melted['Volume'] = pd.to_numeric(monthly_melted['Volume'], errors='coerce').fillna(0)
+                    st.dataframe(filtered_monthly, use_container_width=True, height=210)
+                else:
+                    st.warning("Monthly data available nahi hai.")
+
+            with col_top_r:
+                st.subheader("📊 Monthly Volume Trend")
+                if not monthly_df.empty and 'monthly_melted' in locals():
+                    fig_monthly = px.bar(
+                        monthly_melted, x='Months', y='Volume', color='State', barmode='group',
+                        text_auto=',.0f'
+                    )
+                    fig_monthly.update_layout(
+                        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                        font_color='white', height=245, margin=dict(l=10, r=10, t=10, b=10)
+                    )
+                    fig_monthly.update_traces(textfont_size=8, textangle=0, textposition="outside", cliponaxis=False)
+                    st.plotly_chart(fig_monthly, use_container_width=True)
+
+            st.markdown("---")
+            col_bot_l, col_bot_r = st.columns(2)
+            with col_bot_l:
+                st.subheader("📊 Operational Cost Analytics")
+                ce_df, scc_data = get_dashboard_charts_data(excel_data)
+                if not ce_df.empty:
+                    melted_ce = ce_df.melt('Year', var_name='Sourcing_Type', value_name='Cost')
+                    if sourcing_filter != "All sourcing":
+                        melted_ce = melted_ce[melted_ce['Sourcing_Type'] == sourcing_filter]
+                    melted_ce['Cost'] = pd.to_numeric(melted_ce['Cost'], errors='coerce').fillna(0)
+
+                    fig_ce = px.line(melted_ce, x='Year', y='Cost', color='Sourcing_Type', markers=True, text='Cost')
+                    fig_ce.update_traces(line=dict(shape='spline', width=2), marker=dict(size=6), textposition="top center", texttemplate='%{text:.2f}')
+                    fig_ce.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white', height=245, margin=dict(l=10, r=10, t=10, b=10))
+                    st.plotly_chart(fig_ce, use_container_width=True)
+
+            with col_bot_r:
+                st.subheader("📊 Supply Chain Cost Breakdown")
+                if not scc_data.empty:
+                    scc_chart_df = scc_data.reset_index()
+                    id_col = scc_chart_df.columns[0]
+                    value_cols = [c for c in scc_chart_df.columns if c != id_col]
+                    scc_melted = scc_chart_df.melt(id_vars=[id_col], value_vars=value_cols, var_name='Cost_Type', value_name='Cost')
+                    scc_melted['Cost'] = pd.to_numeric(scc_melted['Cost'], errors='coerce').fillna(0)
+
+                    fig_scc = px.bar(scc_melted, x=id_col, y='Cost', color='Cost_Type', barmode='group', text_auto='.2f')
+                    fig_scc.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white', height=245, margin=dict(l=10, r=10, t=10, b=10))
+                    fig_scc.update_traces(textfont_size=8, textangle=0, textposition="outside", cliponaxis=False)
+                    st.plotly_chart(fig_scc, use_container_width=True)
+
+        else:
+            col_fy_l, col_fy_r = st.columns(2)
+            
+            growth_df = get_year_wise_growth_summary(excel_data)
+            filtered_growth = growth_df.copy()
+            if state_filter != "All states":
+                filtered_growth = filtered_growth[filtered_growth['State'] == state_filter]
+            
+            for col in filtered_growth.columns:
+                if col != 'State':
+                    filtered_growth[col] = pd.to_numeric(filtered_growth[col], errors='coerce')
+                    filtered_growth[col] = filtered_growth[col].round(2)
+
+            with col_fy_l:
+                st.subheader("📈 Year-by-Year Volume (Exact Values)")
+                if not filtered_growth.empty:
+                    st.dataframe(filtered_growth, use_container_width=True, hide_index=True, height=210)
+                else:
+                    st.warning("Data available nahi hai.")
+
+            with col_fy_r:
+                st.subheader("📊 Visual Growth Chart (Grouped View)")
+                chart_cols = [col for col in filtered_growth.columns if col != 'State']
+                if chart_cols and not filtered_growth.empty:
+                    chart_df = filtered_growth.melt(id_vars=['State'], value_vars=chart_cols, var_name='Year', value_name='Volume')
+                    chart_df['Volume'] = pd.to_numeric(chart_df['Volume'], errors='coerce').fillna(0)
+                    
+                    fig_growth = px.bar(chart_df, x='Year', y='Volume', color='State', barmode='group', text_auto=',.2f')
+                    fig_growth.update_layout(
+                        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                        font_color='white', height=245, margin=dict(l=10, r=10, t=10, b=10),
+                        legend=dict(title="State")
+                    )
+                    fig_growth.update_traces(textfont_size=8, textangle=0, textposition="outside", cliponaxis=False)
+                    st.plotly_chart(fig_growth, use_container_width=True)
+
+            st.markdown("---")
+            col_b_l, col_b_r = st.columns(2)
+            
+            ce_df, scc_data = get_dashboard_charts_data(excel_data)
+            
+            with col_b_l:
+                st.subheader("📊 Operational Cost Analytics & Trends")
+                if not ce_df.empty:
+                    melted_ce = ce_df.melt('Year', var_name='Sourcing_Type', value_name='Cost')
+                    if sourcing_filter != "All sourcing":
+                        melted_ce = melted_ce[melted_ce['Sourcing_Type'] == sourcing_filter]
+                    melted_ce['Cost'] = pd.to_numeric(melted_ce['Cost'], errors='coerce').fillna(0)
+
+                    fig_ce = px.line(melted_ce, x='Year', y='Cost', color='Sourcing_Type', markers=True, text='Cost')
+                    fig_ce.update_traces(line=dict(shape='spline', width=2), marker=dict(size=6), textposition="top center", texttemplate='%{text:.2f}')
+                    fig_ce.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white', height=245, margin=dict(l=10, r=10, t=10, b=10))
+                    st.plotly_chart(fig_ce, use_container_width=True)
+
+            with col_b_r:
+                st.subheader("📊 Supply Chain Cost Breakdown (₹ / kg)")
+                if not scc_data.empty:
+                    scc_chart_df = scc_data.reset_index()
+                    id_col = scc_chart_df.columns[0]
+                    value_cols = [c for c in scc_chart_df.columns if c != id_col]
+                    scc_melted = scc_chart_df.melt(id_vars=[id_col], value_vars=value_cols, var_name='Cost_Type', value_name='Cost')
+                    scc_melted['Cost'] = pd.to_numeric(scc_melted['Cost'], errors='coerce').fillna(0)
+
+                    fig_scc = px.bar(scc_melted, x=id_col, y='Cost', color='Cost_Type', barmode='group', text_auto='.2f')
+                    fig_scc.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white', height=245, margin=dict(l=10, r=10, t=10, b=10))
+                    fig_scc.update_traces(textfont_size=8, textangle=0, textposition="outside", cliponaxis=False)
+                    st.plotly_chart(fig_scc, use_container_width=True)
 
     elif selected_sheet == "Volume Summary":
         df = excel_data[selected_sheet]
@@ -139,7 +271,7 @@ if excel_data is not None:
                     ann1_df['GOLY'] = pd.to_numeric(ann1_df['GOLY'], errors='coerce')
                     ann1_df['GOLY'] = (ann1_df['GOLY'] * 100).round(0).astype(str).str.replace('.0', '', regex=False) + '%'
                     
-                st.dataframe(ann1_df, use_container_width=True)
+                st.dataframe(ann1_df, use_container_width=True, height=280)
             except Exception as e:
                 st.error(f"Error loading Annexure 1: {e}")
                 
@@ -148,7 +280,7 @@ if excel_data is not None:
             try:
                 ann2_df = df.iloc[16:23, 1:6].copy()
                 ann2_df.columns = ['Particulars', 'UoM', '23-24', '24-25', 'YTD Sep25']
-                st.dataframe(ann2_df.reset_index(drop=True).dropna(how='all'), use_container_width=True)
+                st.dataframe(ann2_df.reset_index(drop=True).dropna(how='all'), use_container_width=True, height=280)
             except Exception as e:
                 st.error(f"Error loading Annexure 2: {e}")
                 
@@ -158,9 +290,9 @@ if excel_data is not None:
                 ann3_df = df.iloc[29:35, 1:14].copy()
                 cols = ['Year', '2020-21', '2021-22', '2022-23', '2023-24', '2024-25', '2025-26', '2026-27 Plan', 'PY-1', 'PY-2', 'PY-3', 'PY-4', 'PY-5']
                 ann3_df.columns = cols[:len(ann3_df.columns)]
-                st.dataframe(ann3_df.reset_index(drop=True).dropna(how='all'), use_container_width=True)
-            except Exception as e:
-                st.error(f"Error loading Annexure 3: {e}")
+                st.dataframe(ann3_df.reset_index(drop=True).dropna(how='all'), use_container_width=True, height=280)
+            except Exception as f_err:
+                st.error(f"Error loading Annexure 3: {f_err}")
                 
     else:
         df = excel_data[selected_sheet]
@@ -293,11 +425,11 @@ if excel_data is not None:
                 subtotal_df = pd.DataFrame([subtotal_data])
 
             st.subheader(f"📋 {selected_sheet} - Cleaned Structured Table")
-            st.dataframe(display_df, use_container_width=True)
+            st.dataframe(display_df, use_container_width=True, height=220)
             
             if not subtotal_df.empty:
                 st.markdown("📌 **Subtotal Summary (Fixed Bottom View):**")
-                st.dataframe(subtotal_df, use_container_width=True)
+                st.dataframe(subtotal_df, use_container_width=True, height=100)
                 
         except Exception as e:
             st.error(f"Error processing sheet structure: {e}")
