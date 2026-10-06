@@ -10,12 +10,13 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom Glassmorphism / Dark UI Styling + Single Screen Frame Optimization
+# Custom Glassmorphism / Dark UI Styling + Clean Fonts
 st.markdown("""
     <style>
     .stApp {
         background-color: #0B0F19;
         color: #E2E8F0;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
     div[data-testid="stMetric"] {
         background: rgba(30, 41, 59, 0.7);
@@ -33,11 +34,6 @@ st.markdown("""
         color: #F8FAFC !important;
         font-size: 20px !important;
     }
-    .streamlit-expanderHeader {
-        background: rgba(30, 41, 59, 0.5);
-        border-radius: 8px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
-    }
     section[data-testid="stSidebar"] {
         background-color: #0F172A;
         border-right: 1px solid rgba(255, 255, 255, 0.05);
@@ -51,9 +47,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🥛 MPG Commission & Milk Procurement Live Dashboard")
-st.markdown("Yeh dashboard aapke PC ke Excel data se **real-time synchronized** hai.")
-
 @st.cache_data(ttl=10)
 def fetch_data():
     return load_excel_sheets()
@@ -61,7 +54,8 @@ def fetch_data():
 excel_data = fetch_data()
 
 if excel_data is not None:
-    st.sidebar.header("📍 Region / Sheet Selection")
+    # Sidebar mein saare controls aur filters freeze rahenge
+    st.sidebar.header("🎛️ Dashboard Controls & Filters")
     
     if 'nav_selection' not in st.session_state:
         st.session_state.nav_selection = "Summary"
@@ -78,36 +72,33 @@ if excel_data is not None:
     selected_sheet = st.sidebar.selectbox("Choose Sheet", dropdown_options, index=current_index)
     st.session_state.nav_selection = selected_sheet
     
+    st.sidebar.markdown("---")
+    
     if selected_sheet == "Summary":
         growth_df_temp = get_year_wise_growth_summary(excel_data)
         dynamic_years = [col for col in growth_df_temp.columns if col != 'State'] if not growth_df_temp.empty else ["2017-18", "2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24", "2024-25", "2025-26"]
 
-        c_f1, c_f_year, c_f_qtr, c_f2, c_f3 = st.columns([1.2, 1.2, 1.2, 1.8, 1.8])
+        st.sidebar.markdown("### ⚙️ View & Filters")
+        view_mode = st.sidebar.radio("View Mode", ["FY", "Monthly"], horizontal=True)
         
-        with c_f1:
-            view_mode = st.radio("View Mode", ["FY", "Monthly"], horizontal=True, label_visibility="collapsed")
+        selected_year_filter = "All Years"
+        selected_qtr_filter = "All Qtrs"
         
-        with c_f_year:
-            if view_mode == "Monthly":
-                year_options = ["All Years"] + dynamic_years
-                selected_year_filter = st.selectbox("Select Year", year_options, label_visibility="collapsed")
-            else:
-                st.empty()
+        if view_mode == "Monthly":
+            year_options = ["All Years"] + dynamic_years
+            selected_year_filter = st.sidebar.selectbox("Select Year", year_options)
+            qtr_options = ["All Qtrs", "Q1", "Q2", "Q3", "Q4"]
+            selected_qtr_filter = st.sidebar.selectbox("Select Qtr", qtr_options)
 
-        with c_f_qtr:
-            if view_mode == "Monthly":
-                qtr_options = ["All Qtrs", "Q1", "Q2", "Q3", "Q4"]
-                selected_qtr_filter = st.selectbox("Select Qtr", qtr_options, label_visibility="collapsed")
-            else:
-                st.empty()
+        state_filter = st.sidebar.selectbox("Select State", ["All states", "BR", "WB", "JH"])
+        sourcing_filter = st.sidebar.selectbox("Select Sourcing", ["All sourcing", "Network", "Moomark", "3P Vendor", "Avg Landed Cost"])
 
-        with c_f2:
-            state_filter = st.selectbox("Select State", ["All states", "BR", "WB", "JH"], label_visibility="collapsed")
-        with c_f3:
-            sourcing_filter = st.selectbox("Select Sourcing", ["All sourcing", "Network", "Moomark", "3P Vendor", "Avg Landed Cost"], label_visibility="collapsed")
-
-        st.markdown("---")
-        
+    # Main Dashboard Header
+    st.title("🥛 Milk Procurement Live Dashboard")
+    st.markdown("Dashboard **real-time synchronized**.")
+    st.markdown("---")
+    
+    if selected_sheet == "Summary":
         if view_mode == "Monthly":
             col_top_l, col_top_r = st.columns(2)
             
@@ -119,12 +110,12 @@ if excel_data is not None:
                     month_col = next((col for col in filtered_monthly.columns if str(col).lower() in ['month', 'months', 'index']), filtered_monthly.columns[0])
                     filtered_monthly = filtered_monthly.rename(columns={month_col: 'Months'})
 
-                    if 'selected_year_filter' in locals() and selected_year_filter != "All Years":
+                    if selected_year_filter != "All Years":
                         temp_filtered = filtered_monthly[filtered_monthly['Months'].astype(str).str.contains(selected_year_filter, case=False, na=False)]
                         if not temp_filtered.empty:
                             filtered_monthly = temp_filtered
 
-                    if 'selected_qtr_filter' in locals() and selected_qtr_filter != "All Qtrs":
+                    if selected_qtr_filter != "All Qtrs":
                         q_map = {"Q1": ["Apr", "May", "Jun"], "Q2": ["Jul", "Aug", "Sep"], "Q3": ["Oct", "Nov", "Dec"], "Q4": ["Jan", "Feb", "Mar"]}
                         target_months = q_map.get(selected_qtr_filter, [])
                         temp_qtr = filtered_monthly[filtered_monthly['Months'].astype(str).str.contains('|'.join(target_months), case=False, na=False)]
