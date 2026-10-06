@@ -17,42 +17,100 @@ def filter_data_by_query(df, search_query):
 
 def get_year_wise_growth_summary(excel_data):
     try:
-        if "Volume Summary" in excel_data:
-            df = excel_data["Volume Summary"]
-            ann1_df = df.iloc[2:11, 1:7].copy()
-            ann1_df.columns = ['Year', 'BR', 'WB', 'JH', 'Total', 'GOLY']
-            ann1_df = ann1_df.reset_index(drop=True).dropna(how='all')
-            ann1_df = ann1_df[ann1_df['Year'].astype(str).str.contains("FY|20", case=False, na=False)]
-            
-            if not ann1_df.empty:
-                for col in ['BR', 'WB', 'JH', 'Total']:
-                    ann1_df[col] = pd.to_numeric(ann1_df[col], errors='coerce').fillna(0)
+        states_map = {"BIHAR": "BR", "WEST BENGAL": "WB", "JHARKHAND": "JH"}
+        all_records = []
+
+        for s_name, code in states_map.items():
+            if s_name in excel_data:
+                df = excel_data[s_name]
+                clean_df = df.copy()
+                header_row_idx = 0
+                for idx, row in clean_df.iterrows():
+                    if "Particulas" in str(row.values) or "Parameters" in str(row.values):
+                        header_row_idx = idx
+                        break
+                if header_row_idx > 0:
+                    clean_df.columns = clean_df.iloc[header_row_idx]
+                    clean_df = clean_df.iloc[header_row_idx + 1:].copy()
+                else:
+                    if len(clean_df) > 3:
+                        clean_df = clean_df.iloc[3:].copy()
+
+                expected_cols = ['Particulas', 'UoM', 'Months', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Blank', 'Q1', 'Q2', 'Q3', 'Q4', 'FY']
+                current_cols = list(clean_df.columns)
+                mapped_cols = [expected_cols[i] if i < len(expected_cols) else f"Col_{i}" for i in range(len(current_cols))]
+                clean_df.columns = mapped_cols
+
+                if 'Parameters' in clean_df.columns and 'Particulas' not in clean_df.columns:
+                    clean_df = clean_df.rename(columns={'Parameters': 'Particulas'})
+
+                clean_df = clean_df.dropna(subset=['Particulas', 'Months'])
+                avg_rows = clean_df[clean_df['Particulas'].astype(str).str.contains("Avg Milk/Day @4%", case=False, na=False)]
                 
-                records = []
-                for _, row in ann1_df.iterrows():
-                    yr = str(row['Year']).strip()
-                    records.append({"State": "BR", "Year": yr, "Vol Kg/day": row['BR']})
-                    records.append({"State": "WB", "Year": yr, "Vol Kg/day": row['WB']})
-                    records.append({"State": "JH", "Year": yr, "Vol Kg/day": row['JH']})
-                
-                df_res = pd.DataFrame(records)
-                pivot_df = df_res.pivot_table(index='State', columns='Year', values='Vol Kg/day', aggfunc='sum').fillna(0)
-                return pivot_df.reset_index()
+                for _, row in avg_rows.iterrows():
+                    fy = str(row['Months']).strip()
+                    fy_val = row.get('FY', None)
+                    if fy_val is None or pd.isna(fy_val):
+                        month_cols = [c for c in ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'] if c in clean_df.columns]
+                        fy_val = pd.to_numeric(row[month_cols], errors='coerce').mean()
+                    
+                    val = pd.to_numeric(fy_val, errors='coerce')
+                    if not pd.isna(val) and val > 0:
+                        all_records.append({"State": code, "Year": fy, "Vol": val})
+
+        if all_records:
+            res_df = pd.DataFrame(all_records)
+            pivot_df = res_df.pivot_table(index='State', columns='Year', values='Vol', aggfunc='sum').fillna(0)
+            return pivot_df.reset_index()
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error in get_year_wise_growth_summary: {e}")
     return pd.DataFrame()
 
 def get_monthly_volume_data(excel_data):
     try:
-        months = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar']
-        monthly_df = pd.DataFrame({
-            "BR": [55000, 58000, 60000, 62000, 64000, 65000, 66000, 68000, 70000, 72000, 75000, 78000],
-            "WB": [30000, 31000, 32000, 33000, 35000, 36000, 37000, 38000, 40000, 42000, 44000, 45000],
-            "JH": [15000, 16000, 16500, 17000, 18000, 18500, 19000, 20000, 21000, 22000, 23000, 24000]
-        }, index=months)
-        return monthly_df
+        states_map = {"BIHAR": "BR", "WEST BENGAL": "WB", "JHARKHAND": "JH"}
+        months_and_qtrs = ['Apr', 'May', 'Jun', 'Q1', 'Jul', 'Aug', 'Sep', 'Q2', 'Oct', 'Nov', 'Dec', 'Q3', 'Jan', 'Feb', 'Mar', 'Q4']
+        all_rows = []
+
+        for s_name, code in states_map.items():
+            if s_name in excel_data:
+                df = excel_data[s_name]
+                clean_df = df.copy()
+                header_row_idx = 0
+                for idx, row in clean_df.iterrows():
+                    if "Particulas" in str(row.values) or "Parameters" in str(row.values):
+                        header_row_idx = idx
+                        break
+                if header_row_idx > 0:
+                    clean_df.columns = clean_df.iloc[header_row_idx]
+                    clean_df = clean_df.iloc[header_row_idx + 1:].copy()
+                else:
+                    if len(clean_df) > 3:
+                        clean_df = clean_df.iloc[3:].copy()
+
+                expected_cols = ['Particulas', 'UoM', 'Months', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Blank', 'Q1', 'Q2', 'Q3', 'Q4', 'FY']
+                current_cols = list(clean_df.columns)
+                mapped_cols = [expected_cols[i] if i < len(expected_cols) else f"Col_{i}" for i in range(len(current_cols))]
+                clean_df.columns = mapped_cols
+
+                if 'Parameters' in clean_df.columns and 'Particulas' not in clean_df.columns:
+                    clean_df = clean_df.rename(columns={'Parameters': 'Particulas'})
+
+                clean_df = clean_df.dropna(subset=['Particulas', 'Months'])
+                avg_rows = clean_df[clean_df['Particulas'].astype(str).str.contains("Avg Milk/Day @4%", case=False, na=False)]
+
+                for _, row in avg_rows.iterrows():
+                    fy = str(row['Months']).strip()
+                    row_data = {"State": code, "Financial Year": fy}
+                    for col_name in months_and_qtrs:
+                        if col_name in clean_df.columns:
+                            row_data[col_name] = pd.to_numeric(row[col_name], errors='coerce')
+                    all_rows.append(row_data)
+
+        if all_rows:
+            return pd.DataFrame(all_rows)
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error in get_monthly_volume_data: {e}")
     return pd.DataFrame()
 
 def get_dashboard_charts_data(excel_data):
