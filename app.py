@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import streamlit.components.v1 as components
+import os
 from loader import load_excel_sheets
-from calculator import get_year_wise_growth_summary, get_dashboard_charts_data, get_monthly_volume_data
+from calculator import get_year_wise_growth_summary, get_dashboard_charts_data, get_monthly_volume_data, get_executive_kpis
 
 st.set_page_config(
     page_title="MPG Commission - Live Dashboard",
@@ -62,10 +64,13 @@ if excel_data is not None:
     if st.sidebar.button("📊 Summary", use_container_width=True):
         st.session_state.nav_selection = "Summary"
         
+    if st.sidebar.button("📊 Power BI Report (HTML)", use_container_width=True):
+        st.session_state.nav_selection = "Power BI Report"
+        
     st.sidebar.markdown("---")
     
     sheet_names = list(excel_data.keys())
-    dropdown_options = ["Summary"] + sheet_names
+    dropdown_options = ["Summary", "Power BI Report"] + sheet_names
     current_index = dropdown_options.index(st.session_state.nav_selection) if st.session_state.nav_selection in dropdown_options else 0
 
     selected_sheet = st.sidebar.selectbox("Choose Sheet", dropdown_options, index=current_index)
@@ -73,15 +78,17 @@ if excel_data is not None:
     
     st.sidebar.markdown("---")
     
+    state_filter = "All states"
+    sourcing_filter = "All sourcing"
+    selected_year_filter = "All Years"
+    selected_qtrs = []
+    
     if selected_sheet == "Summary":
         growth_df_temp = get_year_wise_growth_summary(excel_data)
-        dynamic_years = [col for col in growth_df_temp.columns if col != 'State'] if not growth_df_temp.empty else ["2014-15", "2015-16", "2016-17", "2017-18", "2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24", "2024-25", "2025-26", "2026-27"]
+        dynamic_years = [col for col in growth_df_temp.columns if col not in ['State', 'Particulas']] if not growth_df_temp.empty else ["2014-15", "2015-16", "2016-17", "2017-18", "2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24", "2024-25", "2025-26", "2026-27"]
 
         st.sidebar.markdown("### ⚙️ View & Filters")
         view_mode = st.sidebar.radio("View Mode", ["FY", "Monthly"], horizontal=True)
-        
-        selected_year_filter = "All Years"
-        selected_qtrs = []
         
         if view_mode == "Monthly":
             year_options = ["All Years"] + dynamic_years
@@ -98,42 +105,55 @@ if excel_data is not None:
     st.markdown("Dashboard **real-time synchronized**.")
     
     # --- EXECUTIVE KPI CARDS ROW (Synchronized with filters) ---
+    kpis = get_executive_kpis(excel_data, state_filter=state_filter, sourcing_filter=sourcing_filter)
+    
     st.markdown("---")
     kpi_cols = st.columns(8)
     
     with kpi_cols[0]:
-        st.metric(label="VOLUME", value="3,76,471", delta="▲ 24.5% GoLY")
+        st.metric(label="VOLUME", value=f"{kpis['volume']:,.0f}", delta="▲ 24.5% GoLY")
         st.caption("▼ 28.8% vs Plan\nkgs / day")
     with kpi_cols[1]:
-        st.metric(label="NETWORK VOL", value="2,68,562", delta="▲ 53.1% GoLY")
+        st.metric(label="NETWORK VOL", value=f"{kpis['network_vol']:,.0f}", delta="▲ 53.1% GoLY")
         st.caption("▼ 11.1% vs Plan\nkgs/day - of total vol")
     with kpi_cols[2]:
-        st.metric(label="AVG LANDED COST", value="₹ 43.57", delta="▲ 5.7% GoLY")
+        st.metric(label="AVG LANDED COST", value=f"₹ {kpis['avg_cost']:.2f}", delta="▲ 5.7% GoLY")
         st.caption("▼ 0.6% vs Plan\nper kg")
     with kpi_cols[3]:
-        st.metric(label="SUPL. CHAIN COST", value="₹ 3.06", delta="▲ 4.5% GoLY")
+        st.metric(label="SUPL. CHAIN COST", value=f"₹ {kpis['scc_cost']:.2f}", delta="▲ 4.5% GoLY")
         st.caption("▲ 0.3% vs Plan\nper kg - Network")
     with kpi_cols[4]:
-        st.metric(label="NO. OF FARMERS", value="13,644", delta="▲ 12.3% GoLY")
+        st.metric(label="NO. OF FARMERS", value=f"{kpis['farmers']:,}", delta="▲ 12.3% GoLY")
         st.caption("▲ 108.1% vs Plan\nsum of state peaks")
     with kpi_cols[5]:
         st.metric(label="POURING / FARMER", value="20", delta="▲ 36.4% GoLY")
         st.caption("▼ 57.3% vs Plan\nNetwork kgs + farmers")
     with kpi_cols[6]:
-        st.metric(label="NO OF MPGS", value="1,449", delta="▲ 34.8% GoLY")
+        st.metric(label="NO OF MPGS", value=f"{kpis['mpgs']:,}", delta="▲ 34.8% GoLY")
         st.caption("▼ 13.0% vs Plan\nsum of state peaks")
     with kpi_cols[7]:
         st.metric(label="POURING / MPG", value="185", delta="▲ 13.6% GoLY")
         st.caption("▲ 2.1% vs Plan\nNetwork kgs + MPGs")
     st.markdown("---")
     
-    if selected_sheet == "Summary":
+    if selected_sheet == "Power BI Report":
+        st.subheader("📊 Power BI Report / HTML Canvas View")
+        html_file_path = "powerbi_report.html"
+        
+        if os.path.exists(html_file_path):
+            with open(html_file_path, "r", encoding="utf-8") as f:
+                html_content = f.read()
+            components.html(html_content, height=800, scrolling=True)
+        else:
+            st.info("💡 `powerbi_report.html` file nahi mili. Pehle apne folder mein `convert_pbix.py` script run karein.")
+            
+    elif selected_sheet == "Summary":
         if view_mode == "Monthly":
             col_top_l, col_top_r = st.columns(2)
             
             with col_top_l:
-                st.subheader("📋 Monthly Detailed Table (Network Volume)")
-                monthly_raw_df = get_monthly_volume_data(excel_data)
+                st.subheader("📋 Monthly Detailed Table (Sourcing & Metrics)")
+                monthly_raw_df = get_monthly_volume_data(excel_data, sourcing_filter=sourcing_filter)
                 
                 if not monthly_raw_df.empty:
                     filtered_m = monthly_raw_df.copy()
@@ -150,14 +170,18 @@ if excel_data is not None:
                         "Q4": ['Jan', 'Feb', 'Mar', 'Q4']
                     }
                     
-                    base_cols = ['State', 'Financial Year']
+                    base_cols = ['State', 'Particulas', 'Financial Year'] if sourcing_filter != "All sourcing" else ['State', 'Financial Year']
+                    all_months = ['Apr', 'May', 'Jun', 'Q1', 'Jul', 'Aug', 'Sep', 'Q2', 'Oct', 'Nov', 'Dec', 'Q3', 'Jan', 'Feb', 'Mar', 'Q4']
+                    
                     if selected_qtrs:
                         active_cols = []
                         for q in selected_qtrs:
                             active_cols.extend(q_map.get(q, []))
                         keep_cols = base_cols + [c for c in active_cols if c in filtered_m.columns]
-                        filtered_m = filtered_m[keep_cols]
-                    
+                    else:
+                        keep_cols = base_cols + [m for m in all_months if m in filtered_m.columns]
+                        
+                    filtered_m = filtered_m[[c for c in keep_cols if c in filtered_m.columns]]
                     st.dataframe(filtered_m, use_container_width=True, hide_index=True, height=210)
                 else:
                     st.warning("Monthly data available nahi hai.")
@@ -175,11 +199,14 @@ if excel_data is not None:
                         available_m = [m for m in months_list if m in filtered_m.columns]
                     
                     if available_m:
-                        melted_m = filtered_m.melt(id_vars=['State', 'Financial Year'], value_vars=available_m, var_name='Month', value_name='Volume')
+                        id_vars_list = ['State', 'Particulas', 'Financial Year'] if 'Particulas' in filtered_m.columns else ['State', 'Financial Year']
+                        color_col = 'Particulas' if 'Particulas' in filtered_m.columns else 'State'
+                        
+                        melted_m = filtered_m.melt(id_vars=id_vars_list, value_vars=available_m, var_name='Month', value_name='Volume')
                         melted_m['Volume'] = pd.to_numeric(melted_m['Volume'], errors='coerce').fillna(0)
                         
                         fig_monthly = px.bar(
-                            melted_m, x='Month', y='Volume', color='State', barmode='relative',
+                            melted_m, x='Month', y='Volume', color=color_col, barmode='relative',
                             text_auto=',.0f'
                         )
                         fig_monthly.update_layout(
@@ -222,18 +249,19 @@ if excel_data is not None:
         else:
             col_fy_l, col_fy_r = st.columns(2)
             
-            growth_df = get_year_wise_growth_summary(excel_data)
+            growth_df = get_year_wise_growth_summary(excel_data, sourcing_filter=sourcing_filter)
             filtered_growth = growth_df.copy()
             if state_filter != "All states":
-                filtered_growth = filtered_growth[filtered_growth['State'] == state_filter]
+                if 'State' in filtered_growth.columns:
+                    filtered_growth = filtered_growth[filtered_growth['State'] == state_filter]
             
             for col in filtered_growth.columns:
-                if col != 'State':
+                if col not in ['State', 'Particulas']:
                     filtered_growth[col] = pd.to_numeric(filtered_growth[col], errors='coerce')
                     filtered_growth[col] = filtered_growth[col].round(2)
 
             with col_fy_l:
-                st.subheader("📈 Year-by-Year Volume (Exact Values)")
+                st.subheader("📈 Year-by-Year Volume (Sourcing Breakdown)")
                 if not filtered_growth.empty:
                     st.dataframe(filtered_growth, use_container_width=True, hide_index=True, height=210)
                 else:
@@ -241,16 +269,19 @@ if excel_data is not None:
 
             with col_fy_r:
                 st.subheader("📊 Visual Growth Chart (Stacked View)")
-                chart_cols = [col for col in filtered_growth.columns if col != 'State']
+                chart_cols = [col for col in filtered_growth.columns if col not in ['State', 'Particulas']]
                 if chart_cols and not filtered_growth.empty:
-                    chart_df = filtered_growth.melt(id_vars=['State'], value_vars=chart_cols, var_name='Year', value_name='Volume')
+                    id_vars_fy = ['State', 'Particulas'] if 'Particulas' in filtered_growth.columns else ['State']
+                    color_col_fy = 'Particulas' if 'Particulas' in filtered_growth.columns else 'State'
+                    
+                    chart_df = filtered_growth.melt(id_vars=id_vars_fy, value_vars=chart_cols, var_name='Year', value_name='Volume')
                     chart_df['Volume'] = pd.to_numeric(chart_df['Volume'], errors='coerce').fillna(0)
                     
-                    fig_growth = px.bar(chart_df, x='Year', y='Volume', color='State', barmode='relative', text_auto=',.2f')
+                    fig_growth = px.bar(chart_df, x='Year', y='Volume', color=color_col_fy, barmode='relative', text_auto=',.2f')
                     fig_growth.update_layout(
                         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                         font_color='white', height=245, margin=dict(l=10, r=10, t=10, b=10),
-                        legend=dict(title="State")
+                        legend=dict(title="Category")
                     )
                     fig_growth.update_traces(textfont_size=8, textangle=0, textposition="inside", cliponaxis=False)
                     st.plotly_chart(fig_growth, use_container_width=True)
@@ -457,7 +488,7 @@ if excel_data is not None:
                     subtotal_data[col] = display_df[col].sum().round(2)
                 subtotal_df = pd.DataFrame([subtotal_data])
 
-            st.subheader(f"📋 {selected_sheet} - Cleaned Structured Table")
+            st.subheader(f"📋 {selected_sheet} - Cleaned Structured Table Data")
             st.dataframe(display_df, use_container_width=True, height=220)
             
             if not subtotal_df.empty:
@@ -469,4 +500,4 @@ if excel_data is not None:
             st.dataframe(df, use_container_width=True)
         
 else:
-    st.error("⚠️️ Error: 'Historical Data.xlsx' file nahi mili!")
+    st.error("⚠️ Error: 'Historical Data.xlsx' file nahi mili!")
